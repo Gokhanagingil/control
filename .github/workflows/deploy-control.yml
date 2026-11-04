@@ -23,9 +23,10 @@ jobs:
       - name: Validate application before connecting to NILES host
         run: |
           set -euo pipefail
-          python3 -m compileall -q app.py ui.py identity.py bootstrap.py seed_reference.py tests
+          python3 -m compileall -q app.py ui.py ui_v2.py identity.py bootstrap.py seed_reference.py grc_plus.py grc_excel.py xlsx_io.py tests
           python3 -c "import ui; open('/tmp/control-ui.js','w').write(ui.HTML.split('<script>',1)[1].split('</script>',1)[0])"
           node --check /tmp/control-ui.js
+          node --check ksgrc.js
           python3 -c "import identity; open('/tmp/control-login.js','w').write(identity.LOGIN_HTML.split('<script>',1)[1].split('</script>',1)[0]); open('/tmp/control-change.js','w').write(identity.CHANGE_HTML.split('<script>',1)[1].split('</script>',1)[0])"
           node --check /tmp/control-login.js
           node --check /tmp/control-change.js
@@ -63,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$SSH_USER@$SSH_HOST" 'mkdir -p /opt/control-grc'
-          scp app.py ui.py identity.py bootstrap.py seed_reference.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
+          scp app.py ui.py ui_v2.py ksgrc.js identity.py bootstrap.py seed_reference.py grc_plus.py grc_excel.py xlsx_io.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
           scp -r seed "$SSH_USER@$SSH_HOST:/opt/control-grc/"
       - name: Deploy only Control GRC
         env:
