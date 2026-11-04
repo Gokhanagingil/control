@@ -86,6 +86,14 @@ jobs:
           echo CONTROL_GRC_HEALTH_FAIL >&2
           exit 1
           REMOTE
+      - name: Remove temporary deployment private key copy from server
+        env:
+          SSH_HOST: ${{ secrets.CONTROL_SSH_HOST }}
+          SSH_USER: ${{ secrets.CONTROL_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
+            'if [ "$(id -u)" = "0" ]; then rm -f -- /root/.ssh/control_grc_deploy /root/.ssh/control_grc_deploy.pub; fi'
       - name: Report deployment status on commit
         if: always()
         env:
