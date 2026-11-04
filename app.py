@@ -2,6 +2,8 @@
 import json
 import base64
 import hmac
+import hashlib
+from pathlib import Path
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -10,6 +12,7 @@ from urllib.parse import urlparse
 from html import escape
 
 DB = os.getenv("CONTROL_DB", "control.db")
+EVIDENCE_DIR = os.getenv("CONTROL_EVIDENCE_DIR", str(Path(DB).parent / "evidence-files"))
 KEY = os.getenv("CONTROL_API_KEY", "")
 UI_USER = os.getenv("CONTROL_UI_USER", "")
 UI_PASSWORD = os.getenv("CONTROL_UI_PASSWORD", "")
@@ -271,6 +274,23 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "audits" and parts[3] == "scope":
                     result = audit_scope(db, int(parts[2]))
                     return self.respond(200 if result else 404, result or {"error": "Not found"})
+                if len(parts) == 4 and parts[0] == "api" and parts[1] == "evidence" and parts[3] == "download":
+                    evidence_id = int(parts[2])
+                    metadata = rows(db, "SELECT hash_sha256 FROM evidence WHERE id=?", (evidence_id,))
+                    location = Path(EVIDENCE_DIR) / str(evidence_id)
+                    if not metadata or not metadata[0]["hash_sha256"] or not location.is_file():
+                        return self.respond(404, {"error": "Evidence file not found"})
+                    raw = location.read_bytes()
+                    if hashlib.sha256(raw).hexdigest() != metadata[0]["hash_sha256"]:
+                        return self.respond(409, {"error": "Evidence integrity check failed"})
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="evidence-{evidence_id}.bin"')
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Length", str(len(raw)))
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "evidence" and parts[3] == "context":
                     result = evidence_context(db, int(parts[2]))
                     return self.respond(200 if result else 404, result or {"error": "Not found"})
@@ -307,6 +327,34 @@ class Handler(BaseHTTPRequestHandler):
                             db.execute(f"DELETE FROM {table} WHERE control_id=?", (control_id,))
                             mapping(db, table, "control_id", control_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     return self.respond(200, context(db, control_id))
+                if len(parts) == 3 and parts[:2] == ["api", "evidence"] and parts[2] == "upload":
+                    title = payload.get("title")
+                    encoded = payload.get("content_base64")
+                    if not isinstance(title, str) or not title.strip() or not isinstance(encoded, str):
+                        raise ValueError("title and content_base64 required")
+                    try:
+                        binary = base64.b64decode(encoded, validate=True)
+                    except ValueError:
+                        raise ValueError("Invalid base64 evidence")
+                    if not binary or len(binary) > 600000:
+                        raise ValueError("Evidence must be 1 to 600000 bytes")
+                    digest = hashlib.sha256(binary).hexdigest()
+                    record_id = insert(db, "evidence", {"title": title, "description": payload.get("description"),
+                        "source": payload.get("source", "manual"), "hash_sha256": digest})
+                    folder = Path(EVIDENCE_DIR)
+                    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    destination = folder / str(record_id)
+                    try:
+                        with destination.open("xb") as out:
+                            out.write(binary)
+                        destination.chmod(0o600)
+                    except Exception:
+                        db.execute("DELETE FROM evidence WHERE id=?", (record_id,))
+                        raise
+                    for target in ("clauses", "processes"):
+                        if target in payload:
+                            mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
+                    return self.respond(201, {"id": record_id, "sha256": digest, "size": len(binary)})
                 if len(parts) == 3 and parts[:2] == ["api", "audits"] and parts[2] == "from-standard":
                     standard_id = payload.get("standard_id")
                     if type(standard_id) is not int or not rows(db, "SELECT id FROM standards WHERE id=?", (standard_id,)):
