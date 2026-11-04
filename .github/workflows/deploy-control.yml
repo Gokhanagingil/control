@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$SSH_USER@$SSH_HOST" 'mkdir -p /opt/control-grc'
-          scp app.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
+          scp app.py ui.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
       - name: Deploy only Control GRC
         env:
           SSH_HOST: ${{ secrets.CONTROL_SSH_HOST }}
