@@ -1,6 +1,6 @@
-# Control GRC — MCP contract and acceptance checklist
+# KS GRC — MCP contract and acceptance checklist
 
-The existing MCP platform is the orchestration layer. Control GRC never calls ServiceNow or Dynamics directly.
+The existing MCP platform is the orchestration layer. KS GRC never calls ServiceNow or Dynamics directly.
 
 ## API access
 
@@ -66,7 +66,7 @@ The existing MCP platform is the orchestration layer. Control GRC never calls Se
 
 ## Deployment
 
-\`Deploy Control GRC (isolated)\` has both manual dispatch and a one-shot push trigger on \`.control-deploy-request\`. All seven \`CONTROL_*\` secrets must be in GitHub Actions environment \`control-grc\` or available as repository secrets. The workflow compiles Python, checks the UI JavaScript, runs unit+HTTP integration tests, builds the image, then copies only Control GRC files to \`/opt/control-grc\`.
+\`Deploy KS GRC (isolated)\` has both manual dispatch and a one-shot push trigger on \`.control-deploy-request\`. All seven \`CONTROL_*\` secrets must be in GitHub Actions environment \`control-grc\` or available as repository secrets. The workflow compiles Python, checks the UI JavaScript, runs unit+HTTP integration tests, builds the image, then copies only KS GRC files to \`/opt/control-grc\`.
 
 GitHub Actions must report success and the server health check must pass before claiming the service has been deployed. The host port remains loopback-only; test from a workstation with an SSH tunnel:
 
