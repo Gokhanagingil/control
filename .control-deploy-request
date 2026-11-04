@@ -1,0 +1,5 @@
+Control GRC staging deployment request
+Date: 2026-11-04
+Target: /opt/control-grc on existing NILES host (isolated compose project control-grc)
+Health: authenticated /api/health
+Guardrails: Python tests + JS syntax + Docker preflight; no changes to NILES project
