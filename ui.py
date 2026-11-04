@@ -184,6 +184,21 @@ async function detail(view,id){
    const data={};document.querySelectorAll('[data-mapping]').forEach(s=>data[s.dataset.mapping]=Array.from(s.selectedOptions).map(o=>Number(o.value)));
    try{await api('controls/'+id+'/mappings',{method:'POST',body:JSON.stringify(data)});$('dialog').close();toast('İlişkiler kaydedildi');show(view)}catch(e){toast(e.message)}
   };
+ }else if(view==='standards'){
+  html+='<div class="panel"><h3>Standart maddelerini CSV ile içe aktar</h3>'+
+   '<p class="hint">CSV başlıkları: code,title,description,parent_code. Yalnızca kullanım hakkın bulunan standart metinlerini yükle. Tek seferde en fazla 1.000 madde.</p>'+
+   '<label class="field wide">CSV dosyası (UTF-8, 700 KB sınırı)<input type="file" accept=".csv,text/csv" id="standardCSV"></label>'+
+   '<div class="actions"><button class="btn" id="importStandard">Maddeleri içe aktar</button></div></div>';
+  modal('Standart ayrıntıları',html);
+  $('importStandard').onclick=async()=>{
+   const file=$('standardCSV').files?.[0];
+   if(!file||!file.size||file.size>700000)return toast('En fazla 700 KB boyutunda CSV seçmelisin');
+   try{
+    const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file)});
+    const result=await api('standards/'+id+'/clauses/import',{method:'POST',body:JSON.stringify({csv_base64:encoded})});
+    $('dialog').close();toast(result.imported+' yeni madde eklendi; '+result.skipped+' zaten mevcut');show('clauses');
+   }catch(e){toast(e.message)}
+  };
  }else if(view==='evidence'){
   const context=await api('evidence/'+id+'/context');
   const [clauses,processes]=await Promise.all([list('clauses'),list('processes')]);
