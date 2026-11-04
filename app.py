@@ -348,6 +348,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def committed_response(self, db, code, payload):
+        # Finish the transaction before sending HTTP success: clients may immediately
+        # issue dependent requests from separate threads/connections.
+        db.commit()
+        return self.respond(code, payload)
+
     def authorized(self):
         # Require an explicit credential even on loopback; never expose anonymous writes.
         api_key = self.headers.get("X-API-Key", "")
@@ -456,7 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = db.execute(f"UPDATE {table} SET {setters} WHERE id=?", args)
                 if result.rowcount == 0:
                     return self.respond(404, {"error": "Record not found"})
-                return self.respond(200, rows(db, f"SELECT * FROM {table} WHERE id=?", (record_id,))[0])
+                return self.committed_response(db, 200, rows(db, f"SELECT * FROM {table} WHERE id=?", (record_id,))[0])
         except (ValueError, sqlite3.Error, json.JSONDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
 
@@ -473,7 +479,7 @@ class Handler(BaseHTTPRequestHandler):
             parts = urlparse(self.path).path.strip("/").split("/")
             with connect() as db:
                 if len(parts) == 5 and parts[:2] == ["api", "standards"] and parts[3:] == ["clauses", "import"]:
-                    return self.respond(201, import_clauses_csv(db, int(parts[2]), payload.get("csv_base64")))
+                    return self.committed_response(db, 201, import_clauses_csv(db, int(parts[2]), payload.get("csv_base64")))
                 if len(parts) == 4 and parts[:2] == ["api", "controls"] and parts[3] == "mappings":
                     control_id = int(parts[2])
                     if not context(db, control_id):
@@ -482,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
                         if target in payload:
                             db.execute(f"DELETE FROM {table} WHERE control_id=?", (control_id,))
                             mapping(db, table, "control_id", control_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
-                    return self.respond(200, context(db, control_id))
+                    return self.committed_response(db, 200, context(db, control_id))
                 if len(parts) == 4 and parts[:2] == ["api", "evidence"] and parts[3] == "mappings":
                     evidence_id = int(parts[2])
                     if not evidence_context(db, evidence_id):
@@ -492,7 +498,7 @@ class Handler(BaseHTTPRequestHandler):
                             db.execute(f"DELETE FROM evidence_{target} WHERE evidence_id=?", (evidence_id,))
                             mapping(db, f"evidence_{target}", "evidence_id", evidence_id,
                                     f"{TARGET_COLUMNS[target]}_id", payload[target])
-                    return self.respond(200, evidence_context(db, evidence_id))
+                    return self.committed_response(db, 200, evidence_context(db, evidence_id))
                 if len(parts) == 3 and parts[:2] == ["api", "evidence"] and parts[2] == "upload":
                     title = payload.get("title")
                     encoded = payload.get("content_base64")
@@ -520,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
                     for target in ("clauses", "processes"):
                         if target in payload:
                             mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
-                    return self.respond(201, {"id": record_id, "sha256": digest, "size": len(binary)})
+                    return self.committed_response(db, 201, {"id": record_id, "sha256": digest, "size": len(binary)})
                 if len(parts) == 3 and parts[:2] == ["api", "audits"] and parts[2] == "from-standard":
                     standard_id = payload.get("standard_id")
                     if type(standard_id) is not int or not rows(db, "SELECT id FROM standards WHERE id=?", (standard_id,)):
@@ -528,11 +534,11 @@ class Handler(BaseHTTPRequestHandler):
                     audit_id = insert(db, "audits", payload)
                     clause_ids = [r["id"] for r in rows(db, "SELECT id FROM clauses WHERE standard_id=?", (standard_id,))]
                     mapping(db, "audit_clauses", "audit_id", audit_id, "clause_id", clause_ids)
-                    return self.respond(201, {"audit_id": audit_id, "clause_count": len(clause_ids)})
+                    return self.committed_response(db, 201, {"audit_id": audit_id, "clause_count": len(clause_ids)})
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
                     if table == "executions":
-                        return self.respond(201, execute(db, payload))
+                        return self.committed_response(db, 201, execute(db, payload))
                     record_id = insert(db, table, payload)
                     if table == "evidence":
                         for target in ("clauses", "processes"):
@@ -540,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
                                 mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     if table == "audits" and "clause_ids" in payload:
                         mapping(db, "audit_clauses", "audit_id", record_id, "clause_id", payload["clause_ids"])
-                    return self.respond(201, {"id": record_id})
+                    return self.committed_response(db, 201, {"id": record_id})
             self.respond(404, {"error": "Not found"})
         except (ValueError, KeyError, sqlite3.Error, json.JSONDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
