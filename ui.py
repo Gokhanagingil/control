@@ -102,8 +102,8 @@ function nav(){const groups=[['home','Genel Bakış'],['controls','Kontroller'],
  $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>show(b.dataset.view));
 }
 function displayValue(key,value){if(value==null)return '<span class="muted">—</span>';if(key==='status'||key==='execution_mode'||key==='severity')return '<span class="pill '+(value==='fail'?'fail':value==='pass'?'pass':value==='manual'?'manual':'')+'">'+escapeHtml(value)+'</span>';return escapeHtml(String(value).slice(0,140))}
-async function show(view){
- state.view=view;state.filter='';nav();$('heading').textContent=view==='home'?'Genel Bakış':labels[view];$('subtitle').textContent=view==='home'?'Denetim, kontrol ve kanıt yönetimi':'Kayıtlar, ilişkiler ve işlemler';$('newBtn').style.display=view==='home'||view==='executions'?'none':'block';
+async function show(view,preserveFilter=false){
+ state.view=view;if(!preserveFilter)state.filter='';nav();$('heading').textContent=view==='home'?'Genel Bakış':labels[view];$('subtitle').textContent=view==='home'?'Denetim, kontrol ve kanıt yönetimi':'Kayıtlar, ilişkiler ve işlemler';$('newBtn').style.display=view==='home'||view==='executions'?'none':'block';
  $('dashboard').innerHTML='';$('content').innerHTML='<div class="panel">Yükleniyor…</div>';
  try{
   if(view==='home')return dashboard();
@@ -116,7 +116,7 @@ async function show(view){
   if(view==='controls')actions+='<button class="btn secondary" id="runControl">Kontrol çalıştır</button>';
   if(view==='executions')actions='<button class="btn" id="runControl">Kontrol çalıştır</button>';
   $('content').innerHTML='<div class="panel"><div class="panel-top"><h2>'+labels[view]+' · '+visible.length+' kayıt</h2><div class="tools">'+actions+'</div></div><input id="search" class="search" aria-label="Kayıt ara" placeholder="Kayıt ara…"><div class="tablewrap" id="table"></div></div>';
-  $('search').value=state.filter;$('search').oninput=e=>{state.filter=e.target.value;show(view).then(()=>$('search')?.focus())};
+  $('search').value=state.filter;$('search').oninput=e=>{state.filter=e.target.value;show(view,true).then(()=>$('search')?.focus())};
   if($('createAction'))$('createAction').onclick=()=>form(view);
   if($('runControl'))$('runControl').onclick=()=>runControl();
   if($('newStandardAudit'))$('newStandardAudit').onclick=()=>auditWizard();
