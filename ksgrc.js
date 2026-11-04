@@ -456,3 +456,204 @@ async function auditWizard(selectedStandard=null){
   }catch(e){toast(e.message,false)}
  }],['Vazgeç',closeDetail,'secondary']]);
 }
+
+async function home(){
+ const [controls,audits,findings,evidence,risks,actions,standards,processes]=await Promise.all([
+ 'controls','audits','findings','evidence','risks','actions','standards','processes'].map(x=>list(x)));
+ const metrics=[
+  ['Kontrol',controls.length,'controls','Kontrolleri aç'],
+  ['Denetim',audits.length,'audits','Denetimleri aç'],
+  ['Açık bulgu',findings.filter(f=>!['closed','accepted'].includes(f.status)).length,'findings','Bulguları incele'],
+  ['Kanıt',evidence.length,'evidence','Kanıt kütüphanesi']
+ ];
+ $('content').innerHTML='<div class="cards">'+metrics.map(([name,n,route,sub])=>
+  '<button class="metric" data-go="'+route+'"><span class="metric-label">'+name+'</span>'+
+  '<span class="metric-number">'+n+'</span><span class="metric-foot">'+sub+' ›</span></button>').join('')+'</div>'+
+ '<div class="panel"><div class="panel-title"><h2>Kontrolden güvenceye</h2><span class="pill">'+standards.length+' standart · '+processes.length+' süreç</span></div>'+
+ '<div class="audit-grid"><div><h3>İzlenebilir kontrol zinciri</h3>'+
+ '<p class="intro">Standart maddesi → kontrol hedefi → kontrol → kanıt → test → bulgu → düzeltici faaliyet. İlişkiler geriye dönük incelenebilir.</p>'+
+ '<button class="btn secondary small" data-go="architecture">Mimari haritayı aç</button></div>'+
+ '<div><h3>Çapraz standart değerlendirmesi</h3>'+
+ '<p class="intro">Bir standart denetimi yapılmadan da o standartla ilişkili kontrollerin başka çalışmalardaki sonuçlarını görebilirsin. Test edilmeyenler uygun kabul edilmez.</p>'+
+ '<button class="btn small" data-go="compliance">Uyumluluk panosuna git</button></div></div></div>'+
+ (controls.some(c=>c.code?.startsWith('KS-DEMO-'))?'<div class="notice warn"><b>Örnek kayıt uyarısı:</b> KS-DEMO kayıtlarındaki ölçümler, bulgular ve kanıt dosyaları simüledir. Canlı sistemden elde edilmiş değildir.</div>':'')+
+ '<div class="panel"><h2>Güncel takip alanları</h2><div class="cards">'+[
+  ['Risk kaydı',risks.length,'risks'],['Açık düzeltici faaliyet',actions.filter(a=>a.status!=='completed').length,'actions'],
+  ['Otomatik kontrol',controls.filter(c=>c.execution_mode==='automatic').length,'controls'],
+  ['Manuel kontrol',controls.filter(c=>c.execution_mode==='manual').length,'controls']
+ ].map(([name,n,route])=>
+ '<button class="metric" data-go="'+route+'"><span class="metric-label">'+name+'</span><span class="metric-number">'+n+'</span></button>').join('')+
+ '</div></div>';
+ $('content').querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));
+ actions([['Uyumluluğa git',()=>navigate('compliance')],['Kontrol oluştur',()=>createForm('controls'),'secondary']]);
+}
+function ring(value,color){
+ const valid=typeof value==='number'&&Number.isFinite(value);
+ const n=valid?Math.max(0,Math.min(100,value)):0;
+ return '<div class="ring" style="background:conic-gradient('+color+' '+n+'%,#e9eef6 '+n+'%)">'+
+ '<div class="ring-inner">'+(valid?n.toFixed(1).replace('.0','')+'%':'—')+'</div></div>';
+}
+async function compliancePage(){
+ const [std,pr,au]=await Promise.all(['standards','processes','audits'].map(list));
+ const opts=(arr,fn)=>'<option value="">Tümü</option>'+
+  arr.map(x=>'<option value="'+x.id+'">'+esc(fn(x))+'</option>').join('');
+ $('content').innerHTML='<div class="panel"><h2>Kapsamı seç</h2>'+
+ '<div class="choice-row"><label>Standart / çerçeve<select id="stdFilter">'+opts(std,x=>x.code+' — '+x.name)+'</select></label>'+
+ '<label>Denetim<select id="auditFilter">'+opts(au,x=>x.name)+'</select></label>'+
+ '<label>Süreç<select id="procFilter">'+opts(pr,x=>x.code+' — '+x.name)+'</select></label></div>'+
+ '<p class="intro">Aynı kontrol farklı standartlara bağlı olabilir. Denetim seçmediğinde en son kontrol sonucu, başka bir denetimden gelmiş olsa bile <b>ön değerlendirme</b> için kullanılır. Bu sonuç resmî standarda uygunluk kararı değildir.</p></div>'+
+ '<div id="complianceResult"><div class="panel">Oranlar hesaplanıyor…</div></div>';
+ const update=async()=>{
+  try{
+   const q=new URLSearchParams();
+   [['standard_id','stdFilter'],['audit_id','auditFilter'],['process_id','procFilter']].forEach(
+   ([key,id])=>{if($(id).value)q.set(key,$(id).value)});
+   displayCompliance(await api('compliance?'+q.toString()));
+  }catch(e){$('complianceResult').innerHTML='<div class="notice warn">'+esc(e.message)+'</div>'}
+ };
+ ['stdFilter','auditFilter','procFilter'].forEach(id=>$(id).onchange=update);
+ await update();
+ actions([['Kontrol kataloğunu aç',()=>navigate('controls')],['Tüm verileri Excel’e aktar',()=>exportExcel('all'),'secondary']]);
+}
+function setCompliance(which,id){
+ const key=which==='audit'?'auditFilter':which==='standard'?'stdFilter':'procFilter';
+ if($(key)){$(key).value=String(id);$(key).dispatchEvent(new Event('change'))}
+}
+function displayCompliance(data){
+ const safeNum=n=>Number.isFinite(n)?n:0;
+ const chart=[
+  ['Testlerin tamamlanması',data.completion_pct,'#297bdf',data.completed+' / '+data.total_controls+' kontrol değerlendirildi'],
+  ['Başarılı test oranı',data.pass_pct,'#20a08e',data.counts.pass+' başarılı · '+data.counts.fail+' başarısız'],
+  ['Olumlu kontrol göstergesi',data.indicative_pct,'#8064cd','Başarılı kontrol / tüm kapsamdaki kontrol']
+ ];
+ const results=data.controls||[];
+ const statText=code=>
+  code==='untested'?'Test edilmedi':chosen('executions','status',code);
+ $('complianceResult').innerHTML='<div class="notice"><b>'+esc(data.evaluation_type)+'</b> — '+
+ esc(data.disclaimer)+'</div>'+
+ '<div class="kpirow">'+chart.map(([name,val,color,sub])=>
+ '<div class="panel kpi">'+ring(val,color)+'<div><div class="kpi-label">'+esc(name)+'</div>'+
+ '<p class="kpi-text">'+esc(sub)+'</p></div></div>').join('')+'</div>'+
+ '<div class="cards">'+[
+  ['Toplam kontrol',data.total_controls],['Başarılı',data.counts.pass],
+  ['Başarısız',data.counts.fail],['Test edilmedi / belirsiz',
+    data.counts.untested+data.counts.inconclusive+data.counts.not_applicable]
+ ].map(([name,n])=>'<div class="metric"><span class="metric-label">'+esc(name)+'</span>'+
+ '<span class="metric-number">'+safeNum(n)+'</span></div>').join('')+'</div>'+
+ (typeof data.framework_coverage_pct==='number'?
+ '<div class="panel"><h2>Standart maddesi eşleştirmesi</h2>'+
+ '<p class="intro">'+data.mapped_clauses+' / '+data.clause_count+
+ ' maddede en az bir aktif kontrol var. Eşleştirme tek başına uygunluk anlamına gelmez.</p>'+
+ '<div class="progress"><div class="progress-fill" style="width:'+data.framework_coverage_pct+'%"></div></div></div>':'')+
+ '<div class="panel"><div class="panel-title"><h2>Kontrol bazında ölçüm</h2>'+
+ '<span class="muted">'+data.total_controls+' kontrol</span></div>'+
+ '<div class="tablewrap"><table><thead><tr><th>Kontrol kodu</th><th>Kontrol adı</th><th>Son sonuç</th><th>Son kontrol zamanı</th></tr></thead>'+
+ '<tbody>'+results.map(x=>'<tr class="clickable" data-control="'+x.id+'"><td class="cell-primary">'+esc(x.code)+'</td>'+
+ '<td>'+esc(x.name)+'</td><td>'+esc(statText(x.status))+'</td><td>'+esc(x.executed_at||'—')+'</td></tr>').join('')+
+ '</tbody></table>'+(results.length?'':'<div class="empty">Seçilen kapsamda eşleştirilmiş kontrol bulunamadı.</div>')+'</div></div>';
+ $('complianceResult').querySelectorAll('[data-control]').forEach(x=>x.onclick=()=>openRecord('controls',Number(x.dataset.control)));
+}
+function architecturePage(){
+ const nodes=[
+  {x:24,w:190,title:'Kaynak Sistemler',items:['ServiceNow ITSM','Dynamics 365','CMDB ve keşif','SIEM / altyapı'],color:'#244263'},
+  {x:260,w:188,title:'MCP Katmanı',items:['Yetkili sorgulama','Zamanlama','Sonuç üretme'],color:'#116e77'},
+  {x:492,w:218,title:'KS GRC Çekirdeği',items:['Standart / maddeler','Kontrol hedefleri','Kontroller / süreçler','Riskler / dokümanlar'],color:'#2856a4'},
+  {x:755,w:204,title:'Kanıt Kütüphanesi',items:['Dosya ve SHA-256','Sürüm geçmişi','Çoklu bağlantı','Denetim geçmişi'],color:'#264663'},
+  {x:1003,w:195,title:'Güvence ve Takip',items:['Denetimler','Kontrol sonuçları','Bulgular','Düzeltici faaliyet'],color:'#264663'}
+ ];
+ const svg='<svg viewBox="0 0 1222 540" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'+
+ '<defs><filter id="nodeShadow"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#051729" flood-opacity=".35"/></filter>'+
+ '<marker id="headArrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">'+
+ '<path d="M0 0 L8 3 L0 6 Z" fill="#70c6d8"/></marker></defs>'+
+ '<text x="27" y="43" fill="#fff" font-size="28" font-weight="750">KS GRC • Mantıksal Mimari</text>'+
+ '<text x="27" y="69" fill="#b6cde0" font-size="13">Sürekli süreç kontrolü, kanıt ve denetim izlenebilirliği</text>'+
+ nodes.map(n=>'<g filter="url(#nodeShadow)"><rect x="'+n.x+'" y="120" rx="16" width="'+n.w+'" height="250" fill="'+n.color+
+ '" stroke="#7ea7c0"/></g><text x="'+(n.x+n.w/2)+'" y="157" fill="#fff" text-anchor="middle" font-weight="750" font-size="16">'+
+ esc(n.title)+'</text>'+n.items.map((item,i)=>'<text x="'+(n.x+n.w/2)+'" y="'+(205+i*32)+
+ '" text-anchor="middle" fill="#d7e6f5" font-size="13">'+esc(item)+'</text>').join('')).join('')+
+ nodes.slice(0,-1).map((n,i)=>{
+  const x1=n.x+n.w+5,x2=nodes[i+1].x-8;
+  return '<path d="M'+x1+' 249 L'+x2+' 249" stroke="#70c6d8" stroke-width="3" marker-end="url(#headArrow)"/>';
+ }).join('')+
+ '<rect x="26" y="421" width="1170" height="85" rx="15" fill="#081c30" stroke="#3c6886"/>'+
+ '<text x="46" y="447" fill="#add7e7" font-size="12" font-weight="700">ALTIN KONTROL VE DENETİM ZİNCİRİ</text>'+
+ ['Gereklilik','Kontrol hedefi','Kontrol','Kanıt','Test','Bulgu','Düzeltici faaliyet'].map((txt,i)=>
+ '<text x="'+(114+i*164)+'" y="483" fill="#f1f9ff" font-size="12" font-weight="650" text-anchor="middle">'+txt+'</text>'+
+ (i<6?'<text x="'+(196+i*164)+'" y="483" fill="#5fc4d6" font-size="20" text-anchor="middle">→</text>':'')).join('')+
+ '</svg>';
+ $('content').innerHTML='<div class="notice"><b>Entegrasyon sınırı:</b> KS GRC, ServiceNow ve Dynamics ile doğrudan bağlantı kurmaz. MCP uygulaması kontrol tarifini okur, ilgili sistemi sorgular ve sonucu API üzerinden GRC’ye yazar.</div>'+
+ '<div class="architecture" role="img" aria-label="KS GRC veri akışı mimari şeması">'+svg+'</div>'+
+ '<div class="arch-cards">'+[
+ ['Bağımsızlık','KS GRC veritabanı, kanıtları ve Docker yaşam döngüsü NILES’tan ayrıdır.'],
+ ['Çoktan çoğa ilişki','Bir kontrol birden fazla standart maddesi, süreç ve kontrol hedefini kapsar.'],
+ ['Denetim izi','Her kontrol çalışmasındaki ilişkiler saklanır; güncel eşleştirme geçmişi bozmaz.'],
+ ['Kanıt zinciri','Kanıt dosyaları sürümlenir, SHA-256 ile doğrulanır, denetime ve kontrollere bağlanır.'],
+ ['Uyumluluk','Tamamlanma, başarılı test ve madde kapsaması farklı oranlar olarak gösterilir.'],
+ ['Gelişime açık','Risk, talimat, bulgu ve DÖF üzerine iş akışı ve ayrıntılı rol yetkileri eklenebilir.']
+ ].map(([t,d])=>'<div class="arch-card"><strong>'+t+'</strong>'+d+'</div>').join('')+'</div>';
+ actions([['Uyumluluk panosu',()=>navigate('compliance')],['Kontrol kataloğu',()=>navigate('controls'),'secondary']]);
+}
+async function adminPage(){
+ const data=await api('admin/summary');
+ const users=data.users||[];
+ $('content').innerHTML='<div class="notice">Şimdilik tüm aktif GRC kullanıcıları eşit uygulama yetkilerine sahiptir. Kullanıcı ve rol tabloları hazır; ayrıntılı rol yetkileri daha sonra etkinleştirilebilir. MCP API erişimi ayrıdır.</div>'+
+ '<div class="cards">'+[
+ ['Kullanıcı',data.user_count],['Aktif kullanıcı',data.active_users],
+ ['Veri şeması',data.schema_version],['Son etkinlik',data.activity.length]
+ ].map(([name,value])=>'<div class="metric"><span class="metric-label">'+name+
+ '</span><span class="metric-number">'+value+'</span></div>').join('')+'</div>'+
+ '<div class="panel"><div class="panel-title"><h2>Kullanıcı yönetimi</h2><button class="btn small" id="newUser">+ Yeni kullanıcı</button></div>'+
+ '<div class="tablewrap"><table><thead><tr><th>Kullanıcı adı</th><th>Görünen ad</th><th>Durum</th><th>Son giriş</th><th>İşlem</th></tr></thead>'+
+ '<tbody>'+users.map(u=>'<tr><td class="cell-primary">'+esc(u.username)+'</td><td>'+esc(u.display_name)+'</td>'+
+ '<td>'+showValue('controls','active',u.is_active)+'</td><td>'+esc(u.last_login_at||'—')+'</td>'+
+ '<td><button class="btn secondary small" data-user="'+u.id+'" data-active="'+u.is_active+'">'+
+ (u.is_active?'Devre dışı bırak':'Etkinleştir')+'</button></td></tr>').join('')+'</tbody></table></div></div>'+
+ '<div class="panel"><h2>Excel ile veri taşıma</h2>'+
+ '<p class="intro">Kontrol, denetim, standart, bulgu, risk ve ilişkileri tek XLSX dosyasında aktar. Hesap parolaları ve yüklenen dosyaların ikili içerikleri güvenlik nedeniyle hariçtir.</p>'+
+ '<div class="toolbar"><button class="btn secondary" id="allExport">Tümünü Excel’e aktar</button>'+
+ '<button class="btn secondary" id="allImport">Excel’den içeri al</button></div></div>'+
+ '<div class="panel"><h2>Son yönetim işlemleri</h2><div class="tablewrap"><table>'+
+ '<thead><tr><th>İşlemi yapan</th><th>İşlem</th><th>Kayıt türü</th><th>Zaman</th></tr></thead><tbody>'+
+ data.activity.map(x=>'<tr><td>'+esc(x.actor)+'</td><td>'+esc(x.method)+'</td><td>'+esc(x.object_type)+'</td>'+
+ '<td>'+esc(x.occurred_at)+'</td></tr>').join('')+'</tbody></table></div></div>';
+ $('newUser').onclick=userForm;$('allExport').onclick=()=>exportExcel('all');
+ $('allImport').onclick=()=>importExcel('all');
+ $('content').querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{
+  const active=b.dataset.active==='0';
+  if(!confirm(active?'Kullanıcı etkinleştirilsin mi?':'Kullanıcı devre dışı bırakılsın mı?'))return;
+  try{await api('admin/users/'+b.dataset.user,{method:'PATCH',
+   body:JSON.stringify({is_active:active?1:0})});
+   toast('Kullanıcı güncellendi');adminPage()
+  }catch(e){toast(e.message,false)}
+ });
+ actions([['Yeni kullanıcı',userForm],['Excel yedeği',()=>exportExcel('all'),'secondary']]);
+}
+function userForm(){
+ drawer('Yeni GRC kullanıcısı','<div class="notice">Tüm kullanıcıların yetkisi şimdilik eşittir. Geçici parola yalnızca bir defa görüntülenir ve ilk girişte değiştirilmesi zorunludur.</div>'+
+ '<label class="field">Kullanıcı adı<input id="newUsername" placeholder="ad.soyad"></label>',
+ [['Kullanıcı oluştur',async()=>{
+  try{const data=await api('admin/users',{method:'POST',
+   body:JSON.stringify({username:$('newUsername').value.trim()})});
+   drawer('Kullanıcı oluşturuldu','<div class="notice success">'+esc(data.username)+' kaydedildi.</div>'+
+   '<p class="intro">Geçici parolayı kurumun güvenli kanalıyla ilet. Bir daha görüntülenemez.</p>'+
+   '<label class="field">Geçici parola<input id="newPassword" readonly value="'+esc(data.temporary_password)+'"></label>',
+   [['Parolayı kopyala',async()=>{
+    try{await navigator.clipboard.writeText(data.temporary_password);toast('Parola kopyalandı')}
+    catch{toast('Panoya kopyalanamadı',false)}},
+   ],['Kapat',()=>{closeDetail();adminPage()},'secondary']]);
+  }catch(e){toast(e.message,false)}
+ }],['Vazgeç',closeDetail,'secondary']]);
+}
+async function start(){
+ try{
+  STATE.meta=await api('metadata');
+  const user=await api('me');$('identity').textContent='Oturum • '+(user.username||'GRC');
+  $('signout').onclick=async()=>{try{await api('logout',{method:'POST',body:'{}'});location.assign('/login')}
+   catch(e){toast(e.message,false)}};
+  $('closeDetail').onclick=closeDetail;
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&STATE.detail)closeDetail()});
+  const route=decodeURIComponent((location.hash||'#/home').replace('#/','')).split('/')[0];
+  await navigate(LABELS[route]?route:'home');
+ }catch(e){$('content').innerHTML='<div class="notice warn">'+esc(e.message)+'</div>'}
+}
+start();
