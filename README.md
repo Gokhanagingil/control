@@ -1,4 +1,4 @@
-# Control GRC
+# KS GRC
 
 Lightweight, Turkish-first GRC MVP. Python 3.11+ standard library only, SQLite persistence, no direct ServiceNow connection.
 
