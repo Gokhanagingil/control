@@ -24,6 +24,8 @@ Open http://localhost:8080. Set `CONTROL_API_KEY` and separate `CONTROL_UI_USER`
 - `GET /api/health`
 - `GET /api/{standards,clauses,processes,objectives,controls,audits,findings,evidence,executions}`
 - `POST /api/{standards,clauses,processes,objectives,controls,audits,findings,evidence,executions}`
+- `POST /api/standards/{id}/clauses/import` with `{"csv_base64":"..."}`. Upload UTF-8 CSV (header: `code,title,description,parent_code`) up to 700 KB / 1,000 clauses, safely skipping existing codes. See `examples/clauses_demo.csv` (synthetic example, not ISO text).
+- `PATCH /api/audits/{id}` / `PATCH /api/findings/{id}` / `PATCH /api/controls/{id}` to update allowed fields. Findings cannot be remapped to a different control via PATCH.
 - `GET /api/controls/{id}/context`
 - `POST /api/audits/from-standard` with `{"name":"Audit 1","standard_id":1}`; links all current clauses of the standard to the audit
 - `GET /api/audits/{id}/scope`
@@ -36,3 +38,13 @@ Open http://localhost:8080. Set `CONTROL_API_KEY` and separate `CONTROL_UI_USER`
 POST execution with status `fail` automatically creates a finding, linked to the execution. Findings inherit the control's mapped requirements and processes through its relationships. Passing status `pass` does not close prior findings.
 
 Use header `X-API-Key` for MCP API calls. The browser uses HTTP Basic authentication with `CONTROL_UI_USER` and `CONTROL_UI_PASSWORD`. This is a bootstrap prototype; add authentication, HTTPS, backups and role controls before production use.
+
+## First browser session
+
+The server bind is intentionally `127.0.0.1:18080` to avoid transmitting Basic credentials over public HTTP. In **Windows PowerShell on your own PC** (not the remote Ubuntu shell), run:
+
+```powershell
+ssh -N -L 18080:127.0.0.1:18080 root@46.224.99.150
+```
+
+Keep that terminal open, then visit `http://127.0.0.1:18080` and sign in with `CONTROL_UI_USER` / `CONTROL_UI_PASSWORD`. All future production publishing must be HTTPS-backed and have stronger identity controls. No direct public IP:port exposure exists yet.

@@ -136,6 +136,7 @@ class HTTPTests(unittest.TestCase):
         csv_bytes = b"code,title,description,parent_code\n9,Top-level requirement,Description,\n9.1,Child requirement,Detail,9\n"
         encoded = base64.b64encode(csv_bytes).decode()
         status, result = self.request(f"standards/{sid}/clauses/import", {"csv_base64": encoded})
+        self.assertEqual(status, 201, f"CSV import failed: {result}")
         self.assertEqual((status, result["imported"], result["total"]), (201, 2, 2))
         status, repeat = self.request(f"standards/{sid}/clauses/import", {"csv_base64": encoded})
         self.assertEqual((status, repeat["imported"], repeat["skipped"]), (201, 0, 2))
