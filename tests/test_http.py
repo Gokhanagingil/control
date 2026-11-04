@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import app
+import identity
 
 
 class HTTPTests(unittest.TestCase):
@@ -23,6 +24,8 @@ class HTTPTests(unittest.TestCase):
         app.UI_USER = "test"
         app.UI_PASSWORD = "different-test-password"
         app.initialize()
+        with app.connect() as db:
+            identity.provision(db, "test", "initial-test-password-01")
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -61,14 +64,36 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(code, 401)
         code, data = self.request("health")
         self.assertEqual((code, data["status"]), (200, "ok"))
-        req = Request(self.base + "/", headers={
-            "Authorization": "Basic " + base64.b64encode(b"test:different-test-password").decode()
-        })
+        bad = Request(self.base + "/api/login",
+            data=json.dumps({"username": "test", "password": "wrong-password"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with self.assertRaises(HTTPError) as error:
+            urlopen(bad, timeout=8)
+        self.assertEqual(error.exception.code, 401)
+        login = Request(self.base + "/api/login",
+            data=json.dumps({"username": "test", "password": "initial-test-password-01"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(login, timeout=8) as response:
+            self.assertEqual(response.status, 200)
+            cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+            self.assertTrue(json.loads(response.read())["must_change_password"])
+        change = Request(self.base + "/api/change-password",
+            data=json.dumps({"current_password": "initial-test-password-01",
+                "new_password": "a-better-private-password-02"}).encode(),
+            headers={"Content-Type": "application/json", "Cookie": cookie,
+                "Origin": self.base}, method="POST")
+        with urlopen(change, timeout=8) as response:
+            self.assertEqual(response.status, 200)
+            new_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        req = Request(self.base + "/", headers={"Cookie": new_cookie})
         with urlopen(req, timeout=8) as response:
             html = response.read().decode()
             self.assertEqual(response.status, 200)
             self.assertIn("Control GRC", html)
             self.assertIn("Standart Maddeleri", html)
+        check = Request(self.base + "/api/me", headers={"Cookie": new_cookie})
+        with urlopen(check, timeout=8) as response:
+            self.assertEqual(json.loads(response.read())["username"], "test")
 
     def test_complete_mcp_audit_flow(self):
         code, standard = self.request("standards", {"code": "DEMO-TEST", "name": "Example standard"})
