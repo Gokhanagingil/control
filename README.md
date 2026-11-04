@@ -8,7 +8,7 @@ Lightweight, Turkish-first GRC MVP. Python 3.11+ standard library only, SQLite p
 python app.py
 ```
 
-Open http://localhost:8080. Set `CONTROL_API_KEY` and separate `CONTROL_UI_USER` / `CONTROL_UI_PASSWORD` credentials. No anonymous access is allowed. Never expose HTTP Basic credentials over unencrypted public HTTP. Use `CONTROL_DB` to override the SQLite path.
+Open http://localhost:8080. Set `CONTROL_API_KEY`. The browser now authenticates against a real `users` database table with salted PBKDF2-SHA256 password hashes, 12-hour HttpOnly sessions, and an enforced first-login password change. Set `CONTROL_UI_USER` to choose the initial username. No role distinctions are enforced in this MVP. Use `CONTROL_DB` to override the SQLite path.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ Open http://localhost:8080. Set `CONTROL_API_KEY` and separate `CONTROL_UI_USER`
 
 POST execution with status `fail` automatically creates a finding, linked to the execution. Findings inherit the control's mapped requirements and processes through its relationships. Passing status `pass` does not close prior findings.
 
-Use header `X-API-Key` for MCP API calls. The browser uses HTTP Basic authentication with `CONTROL_UI_USER` and `CONTROL_UI_PASSWORD`. This is a bootstrap prototype; add authentication, HTTPS, backups and role controls before production use.
+Use header `X-API-Key` for MCP API calls. The browser uses user records and password-backed sessions; it does not read the old `CONTROL_UI_PASSWORD` secret. This is a prototype; add a trusted TLS certificate, backups, and role controls before production use.
 
 ## First browser session
 
@@ -48,3 +48,25 @@ ssh -N -L 18080:127.0.0.1:18080 root@46.224.99.150
 ```
 
 Keep that terminal open, then visit `http://127.0.0.1:18080` and sign in with `CONTROL_UI_USER` / `CONTROL_UI_PASSWORD`. All future production publishing must be HTTPS-backed and have stronger identity controls. No direct public IP:port exposure exists yet.
+
+## First login
+
+The isolated deployment action creates one database-backed user named by `CONTROL_UI_USER` (initially `grcadmin`) and generates a one-time temporary password on the server. It does NOT use the unreadable GitHub `CONTROL_UI_PASSWORD` secret.
+
+To view the new credentials without exposing them in GitHub Actions logs, SSH into the Ubuntu host and run:
+
+```bash
+sudo cat /opt/control-grc/.first-login
+```
+
+The file is root-readable only. Do not paste credentials into chat. On the first sign-in the user is forced to set a new password. Delete this temporary file afterward: `sudo rm -f /opt/control-grc/.first-login`.
+
+If a reset is ever needed, run as root on the server (redirect output to a private file, never to CI logs):
+
+```bash
+umask 077
+cd /opt/control-grc
+docker compose -p control-grc exec -T app python /app/bootstrap.py reset grcadmin --force > /opt/control-grc/.first-login
+```
+
+See `DEPLOYMENT.md` for network access restrictions. User and role tables are present, but all signed-in users have the same application capabilities in this MVP.
