@@ -24,6 +24,7 @@ TABLES = {
     "findings": {"title": "TEXT NOT NULL", "control_id": "INTEGER REFERENCES controls(id)", "execution_id": "INTEGER REFERENCES executions(id)", "audit_id": "INTEGER REFERENCES audits(id)", "description": "TEXT", "severity": "TEXT NOT NULL DEFAULT 'medium'", "status": "TEXT NOT NULL DEFAULT 'open'", "created_at": "TEXT NOT NULL"}
 }
 MAPPINGS = {"clauses": "control_clauses", "processes": "control_processes", "objectives": "control_objectives"}
+TARGET_COLUMNS = {"clauses": "clause", "processes": "process", "objectives": "objective"}
 ALLOWED_STATUS = {"pass", "fail", "not_applicable", "inconclusive"}
 ALLOWED_MODES = {"manual", "automatic"}
 ALLOWED_NATURE = {"preventive", "detective", "corrective", "directive", "compensating"}
@@ -45,7 +46,7 @@ def initialize():
             cols = ", ".join(f"{field} {definition}" for field, definition in fields.items())
             db.execute(f"CREATE TABLE IF NOT EXISTS {name} (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
         for target, table in MAPPINGS.items():
-            db.execute(f"CREATE TABLE IF NOT EXISTS {table} (control_id INTEGER NOT NULL REFERENCES controls(id) ON DELETE CASCADE, {{'clauses':'clause','processes':'process','objectives':'objective'}[target]}_id INTEGER NOT NULL REFERENCES {target}(id) ON DELETE CASCADE, PRIMARY KEY(control_id, {{'clauses':'clause','processes':'process','objectives':'objective'}[target]}_id))")
+            db.execute(f"CREATE TABLE IF NOT EXISTS {table} (control_id INTEGER NOT NULL REFERENCES controls(id) ON DELETE CASCADE, {TARGET_COLUMNS[target]}_id INTEGER NOT NULL REFERENCES {target}(id) ON DELETE CASCADE, PRIMARY KEY(control_id, {TARGET_COLUMNS[target]}_id))")
         db.execute("CREATE TABLE IF NOT EXISTS execution_evidence (execution_id INTEGER REFERENCES executions(id) ON DELETE CASCADE, evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, PRIMARY KEY(execution_id,evidence_id))")
         db.execute("CREATE TABLE IF NOT EXISTS evidence_clauses (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, clause_id INTEGER REFERENCES clauses(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,clause_id))")
         db.execute("CREATE TABLE IF NOT EXISTS evidence_processes (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, process_id INTEGER REFERENCES processes(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,process_id))")
@@ -124,7 +125,7 @@ def context(db, control_id):
         return None
     result = item[0]
     for target, table in MAPPINGS.items():
-        result[target] = rows(db, f"SELECT t.* FROM {target} t JOIN {table} m ON m.{{'clauses':'clause','processes':'process','objectives':'objective'}[target]}_id=t.id WHERE m.control_id=?", (control_id,))
+        result[target] = rows(db, f"SELECT t.* FROM {target} t JOIN {table} m ON m.{TARGET_COLUMNS[target]}_id=t.id WHERE m.control_id=?", (control_id,))
     return result
 
 
@@ -256,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
                     for target, table in MAPPINGS.items():
                         if target in payload:
                             db.execute(f"DELETE FROM {table} WHERE control_id=?", (control_id,))
-                            mapping(db, table, "control_id", control_id, f"{{'clauses':'clause','processes':'process','objectives':'objective'}[target]}_id", payload[target])
+                            mapping(db, table, "control_id", control_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     return self.respond(200, context(db, control_id))
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
@@ -266,7 +267,7 @@ class Handler(BaseHTTPRequestHandler):
                     if table == "evidence":
                         for target in ("clauses", "processes"):
                             if target in payload:
-                                mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{{'clauses':'clause','processes':'process','objectives':'objective'}[target]}_id", payload[target])
+                                mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     if table == "audits" and "clause_ids" in payload:
                         mapping(db, "audit_clauses", "audit_id", record_id, "clause_id", payload["clause_ids"])
                     return self.respond(201, {"id": record_id})
