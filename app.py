@@ -1,5 +1,7 @@
 """Control GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
+import base64
+import hmac
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -9,6 +11,8 @@ from html import escape
 
 DB = os.getenv("CONTROL_DB", "control.db")
 KEY = os.getenv("CONTROL_API_KEY", "")
+UI_USER = os.getenv("CONTROL_UI_USER", "")
+UI_PASSWORD = os.getenv("CONTROL_UI_PASSWORD", "")
 HOST = os.getenv("CONTROL_HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8080"))
 
@@ -209,9 +213,24 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def authorized(self):
-        if not KEY or self.headers.get("X-API-Key") == KEY:
+        # Require an explicit credential even on loopback; never expose anonymous writes.
+        api_key = self.headers.get("X-API-Key", "")
+        if KEY and api_key and hmac.compare_digest(api_key, KEY):
             return True
-        self.respond(401, {"error": "Unauthorized"})
+        authorization = self.headers.get("Authorization", "")
+        if UI_USER and UI_PASSWORD and authorization.startswith("Basic "):
+            try:
+                credentials = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
+                username, password = credentials.split(":", 1)
+                if hmac.compare_digest(username, UI_USER) and hmac.compare_digest(password, UI_PASSWORD):
+                    return True
+            except (ValueError, UnicodeDecodeError):
+                pass
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Control GRC"')
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
         return False
 
     def do_GET(self):
