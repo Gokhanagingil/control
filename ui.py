@@ -224,7 +224,7 @@ async function detail(view,id){
 }
 async function editForm(view,id,entry){
  if(!meta[view])return;
- const fields=meta[view].filter(([key])=>!(view==='clauses'&&key==='standard_id')&&!(view==='evidence'&&key==='source'));
+ const fields=meta[view].filter(([key])=>!(view==='clauses'&&key==='standard_id')&&!(view==='evidence'&&key==='source')&&!(view==='findings'&&['control_id','audit_id'].includes(key)));
  const html=(await Promise.all(fields.map(fieldMarkup))).join('');
  modal(labels[view]+' kaydını düzenle','<div class="formgrid">'+html+'</div><div class="actions"><button class="btn" id="saveEdit">Değişiklikleri kaydet</button></div>');
  fields.forEach(([key])=>{
