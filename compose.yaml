@@ -9,7 +9,7 @@ services:
       PORT: "8080"
       CONTROL_API_KEY: ${CONTROL_API_KEY:?Set CONTROL_API_KEY in a local .env file}
       CONTROL_UI_USER: ${CONTROL_UI_USER:?Set CONTROL_UI_USER in .env}
-      CONTROL_UI_PASSWORD: ${CONTROL_UI_PASSWORD:?Set CONTROL_UI_PASSWORD in .env}
+      CONTROL_COOKIE_SECURE: ${CONTROL_COOKIE_SECURE:-0}
     ports:
       - "127.0.0.1:18080:8080"
     volumes:
