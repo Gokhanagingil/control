@@ -1,5 +1,6 @@
 """Control GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
+import ui
 import base64
 import binascii
 import hmac
@@ -302,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
                     table = parse_qs(path.query).get("view", ["controls"])[0]
                     if table not in TABLES:
                         table = "controls"
-                    return self.respond(200, page(db, table), "text/html; charset=utf-8")
+                    return self.respond(200, ui.page_html(), "text/html; charset=utf-8")
             self.respond(404, {"error": "Not found"})
         except (ValueError, sqlite3.Error) as exc:
             self.respond(400, {"error": str(exc)})
