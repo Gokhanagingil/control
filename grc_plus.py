@@ -102,8 +102,8 @@ FIELD_LABELS = {
     "resolution":"Çözüm açıklaması","closed_at":"Kapanış zamanı",
     "criticality":"Kritiklik","method_type":"Kontrol test yöntemi",
 }
-EVIDENCE_EXT = {".pdf",".png",".jpg",".jpeg",".webp",".txt",".csv",".json",".log",
-                ".xlsx",".docx",".pptx",".zip",".eml",".xml",".md"}
+EVIDENCE_EXT = {".pdf",".png",".jpg",".jpeg",".webp",".tif",".tiff",".txt",".csv",".json",".jsonl",".log",
+                ".xlsx",".docx",".pptx",".zip",".eml",".msg",".xml",".md"}
 MAX_FILE = 20 * 1024 * 1024
 MAX_BODY = 29 * 1024 * 1024
 SAFE_NAME = re.compile(r"^[^/\\\x00-\x1f]{1,160}$")
@@ -611,7 +611,8 @@ def post(handler):
             import secrets
             password=secrets.token_urlsafe(18)
             with app.connect() as db:
-                identity.provision(db,username,password)
+                if not identity.provision(db,username,password):
+                    raise ValueError("Bu kullanıcı adı zaten kullanılıyor")
                 row=db.execute("SELECT id FROM users WHERE username=?",(username,)).fetchone()
                 if not row or not db.execute("SELECT password_hash FROM users WHERE id=?",(row["id"],)).fetchone()["password_hash"]:
                     raise ValueError("Kullanıcı oluşturulamadı veya zaten var")
@@ -706,8 +707,6 @@ def patch(handler):
     import app
     parts=urlparse(handler.path).path.strip("/").split("/")
     try:
-        if len(parts)==3 and parts[:2]==["api","admin"] and False:
-            return False
         if len(parts)==4 and parts[:3]==["api","admin","users"]:
             if getattr(handler,"auth_type",None)!="session":
                 return handler.respond(403,{"error":"Yalnızca kullanıcı oturumundan işlem yapılabilir"}) or True
