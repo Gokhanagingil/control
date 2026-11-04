@@ -133,6 +133,29 @@ def context(db, control_id):
     return result
 
 
+def audit_scope(db, audit_id):
+    audits = rows(db, "SELECT * FROM audits WHERE id=?", (audit_id,))
+    if not audits:
+        return None
+    audit = audits[0]
+    audit["clauses"] = rows(db, """SELECT c.*, s.code AS standard_code FROM clauses c
+        JOIN audit_clauses ac ON ac.clause_id=c.id
+        JOIN standards s ON s.id=c.standard_id
+        WHERE ac.audit_id=? ORDER BY s.code,c.code""", (audit_id,))
+    return audit
+
+
+def evidence_context(db, evidence_id):
+    evidence = rows(db, "SELECT * FROM evidence WHERE id=?", (evidence_id,))
+    if not evidence:
+        return None
+    result = evidence[0]
+    result["clauses"] = rows(db, "SELECT c.* FROM clauses c JOIN evidence_clauses m ON m.clause_id=c.id WHERE m.evidence_id=?", (evidence_id,))
+    result["processes"] = rows(db, "SELECT p.* FROM processes p JOIN evidence_processes m ON m.process_id=p.id WHERE m.evidence_id=?", (evidence_id,))
+    result["executions"] = rows(db, "SELECT x.* FROM executions x JOIN execution_evidence m ON m.execution_id=x.id WHERE m.evidence_id=? ORDER BY x.executed_at DESC", (evidence_id,))
+    return result
+
+
 def execute(db, data):
     control_id = data.get("control_id")
     if not isinstance(control_id, int) or not context(db, control_id):
@@ -245,6 +268,12 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) == 4 and parts[:2] == ["api", "controls"] and parts[3] == "context":
                     result = context(db, int(parts[2]))
                     return self.respond(200 if result else 404, result or {"error": "Not found"})
+                if len(parts) == 4 and parts[0] == "api" and parts[1] == "audits" and parts[3] == "scope":
+                    result = audit_scope(db, int(parts[2]))
+                    return self.respond(200 if result else 404, result or {"error": "Not found"})
+                if len(parts) == 4 and parts[0] == "api" and parts[1] == "evidence" and parts[3] == "context":
+                    result = evidence_context(db, int(parts[2]))
+                    return self.respond(200 if result else 404, result or {"error": "Not found"})
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     return self.respond(200, rows(db, f"SELECT * FROM {parts[1]} ORDER BY id DESC LIMIT 1000"))
                 if path.path in {"/", "/index.html"}:
@@ -278,6 +307,14 @@ class Handler(BaseHTTPRequestHandler):
                             db.execute(f"DELETE FROM {table} WHERE control_id=?", (control_id,))
                             mapping(db, table, "control_id", control_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     return self.respond(200, context(db, control_id))
+                if len(parts) == 3 and parts[:2] == ["api", "audits"] and parts[2] == "from-standard":
+                    standard_id = payload.get("standard_id")
+                    if type(standard_id) is not int or not rows(db, "SELECT id FROM standards WHERE id=?", (standard_id,)):
+                        raise ValueError("Valid standard_id required")
+                    audit_id = insert(db, "audits", payload)
+                    clause_ids = [r["id"] for r in rows(db, "SELECT id FROM clauses WHERE standard_id=?", (standard_id,))]
+                    mapping(db, "audit_clauses", "audit_id", audit_id, "clause_id", clause_ids)
+                    return self.respond(201, {"audit_id": audit_id, "clause_count": len(clause_ids)})
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
                     if table == "executions":
