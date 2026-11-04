@@ -8,3 +8,5 @@ Highlights: bulk clauses CSV import, editable findings/audits, evidence mapping 
 Final security cleanup: remove temporary /root/.ssh/control_grc_deploy private-key copy after verified Control GRC health check.
 
 Authenticated-user rollout 2026-11-04: first-login bootstrap, hashed DB account, password-change flow, no UI secret reuse. Commit f9d0785fe2552ba891e33e3a84e07a482d75549a
+
+2026-11-04: HTTPS Quick Tunnel preview, Secure cookie, first-user existence check. Ref 7685e8dd76fc2fa6e4d9ef86a1000d373eb19610.
