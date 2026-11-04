@@ -132,7 +132,8 @@ async function dashboard(){
  try{
   const [cs,au,fi,ev,st,pr]=await Promise.all(['controls','audits','findings','evidence','standards','processes'].map(list));
   const nums=[['Toplam kontrol',cs.length],['Denetim',au.length],['Açık bulgu',fi.filter(f=>f.status!=='closed').length],['Kanıt kaydı',ev.length]];
-  $('dashboard').innerHTML='<div class="cards">'+nums.map(([k,v])=>'<div class="card"><label>'+k+'</label><b>'+v+'</b></div>').join('')+'</div>'+
+  const simulated=cs.some(x=>String(x.code||'').startsWith('KS-DEMO-'));
+  $('dashboard').innerHTML=(simulated?'<div class="panel"><b>Örnek veri ortamı</b><p class="hint">KS-DEMO kontrolleri, kanıtları ve bulguları tamamen kurgusaldır. Gerçek ServiceNow / Dynamics inceleme sonuçları değildir. Kullanıcı tarafından oluşturulan kayıtlar ayrıca gösterilir.</p></div>':'')+'<div class="cards">'+nums.map(([k,v])=>'<div class="card"><label>'+k+'</label><b>'+v+'</b></div>').join('')+'</div>'+
    '<div class="panel"><div class="panel-top"><h2>Başlangıç ve çalışma sırası</h2></div>'+
    '<p><b>1.</b> Standartlar ve maddeleri oluştur. <b>2.</b> Süreçleri ve kontrol hedeflerini tanımla. <b>3.</b> Kontrol oluşturup ilişkilerini bağla.</p>'+
    '<p><b>4.</b> Standarttan denetim başlat. <b>5.</b> Manuel veya MCP üzerinden kontrol sonucu gir. <b>6.</b> Kanıtları sakla ve tekrar kullan.</p>'+
@@ -213,8 +214,30 @@ async function detail(view,id){
    try{await api('evidence/'+id+'/mappings',{method:'POST',body:JSON.stringify(payload)});$('dialog').close();toast('Kanıt ilişkileri güncellendi');show(view)}catch(e){toast(e.message)}
   };
   if($('download'))$('download').onclick=async()=>{
-   try{const blob=await api('evidence/'+id+'/download');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='evidence-'+id+'.bin';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){toast(e.message)}
+   try{const blob=await api('evidence/'+id+'/download');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='evidence-'+id+(x.source==='demo_seed'?'.json':'.bin');a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){toast(e.message)}
   };
+ }else if(view==='findings'||view==='executions'){
+  const record=await api(view+'/'+id+'/context');
+  const run=view==='findings'?record.execution:record;
+  if(run){
+   const links=(name,items,formatter)=>{
+    const data=(items||[]).map(item=>'<li>'+escapeHtml(formatter(item))+'</li>').join('');
+    return '<div><h4>'+escapeHtml(name)+' ('+(items||[]).length+')</h4>'+
+      (data?'<ul>'+data+'</ul>':'<p class="muted">Eşleşme bulunamadı.</p>')+'</div>';
+   };
+   html+='<div class="panel"><h3>Kontrol • standart • süreç • kanıt bağlantıları</h3>'+
+     '<p class="hint">Bu ilişkiler kontrol çalıştırıldığı andaki sabitlenmiş kayıtlardır. Güncel kontrol eşleştirmeleri değişse de geçmiş denetim izi korunur.</p>'+
+     '<p><b>Kontrol ID:</b> '+escapeHtml(run.control_id)+' &nbsp; <b>Denetim ID:</b> '+escapeHtml(run.audit_id||'Denetim dışı')+
+     ' &nbsp; <b>Sonuç:</b> '+escapeHtml(run.status)+'</p>'+
+     '<p><b>Uygulama zamanı:</b> '+escapeHtml(run.executed_at||'—')+'</p>'+
+     '<p><b>Test açıklaması:</b> '+escapeHtml(run.details||'—')+'</p>'+
+     '<div class="formgrid">'+links('Standart maddeleri',run.clauses,x=>x.code+' — '+x.title)+
+       links('Süreçler',run.processes,x=>x.code+' — '+x.name)+
+       links('Kontrol hedefleri',run.objectives,x=>x.code+' — '+x.name)+
+       links('Dayanak kanıtlar',run.evidence,x=>'#'+x.id+' — '+x.title)+
+     '</div></div>';
+  }
+  modal(view==='findings'?'Bulgu bağlantıları':'Kontrol çalışması bağlantıları',html);
  }else if(view==='audits'){
   const scope=await api('audits/'+id+'/scope');
   html+='<div class="panel"><h3>Denetim kapsamındaki standart maddeleri ('+scope.clauses.length+')</h3><div class="tablewrap"><table>'+scope.clauses.map(x=>'<tr><td>'+escapeHtml(x.standard_code)+'</td><td>'+escapeHtml(x.code)+'</td><td>'+escapeHtml(x.title)+'</td></tr>').join('')+'</table></div></div>';
