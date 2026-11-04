@@ -151,6 +151,7 @@ def _parse_records(db, table, sheet):
     for field in columns(table):
         aliases[field.casefold()]=field
         aliases[grc_plus.FIELD_LABELS.get(field,field).casefold()]=field
+        aliases[field.replace("_"," ").title().casefold()]=field
     mapping=[]
     for label in headers:
         key=aliases.get(label.casefold())
