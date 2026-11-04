@@ -50,6 +50,33 @@ def initialize():
         db.execute("CREATE TABLE IF NOT EXISTS evidence_clauses (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, clause_id INTEGER REFERENCES clauses(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,clause_id))")
         db.execute("CREATE TABLE IF NOT EXISTS evidence_processes (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, process_id INTEGER REFERENCES processes(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,process_id))")
         db.execute("CREATE TABLE IF NOT EXISTS audit_clauses (audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE, clause_id INTEGER REFERENCES clauses(id) ON DELETE CASCADE, PRIMARY KEY(audit_id,clause_id))")
+        # Future identity/authorization schema. No login or permission enforcement yet.
+        db.execute("""CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            email TEXT UNIQUE,
+            display_name TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS user_roles (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            PRIMARY KEY(user_id,role_id)
+        )""")
+        for code, name, description in (
+            ("ADMIN", "Yönetici", "Tam uygulama yetkisi (gelecekte uygulanacak)"),
+            ("AUDITOR", "Denetçi", "Denetim ve kontrol çalışmaları (gelecekte uygulanacak)"),
+            ("VIEWER", "Görüntüleyici", "Salt okunur erişim (gelecekte uygulanacak)")
+        ):
+            db.execute("INSERT OR IGNORE INTO roles(code,name,description) VALUES (?,?,?)", (code,name,description))
 
 
 def utcnow():
