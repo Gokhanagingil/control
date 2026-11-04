@@ -1,6 +1,7 @@
 """Control GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import base64
+import binascii
 import hmac
 import hashlib
 from pathlib import Path
@@ -334,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("title and content_base64 required")
                     try:
                         binary = base64.b64decode(encoded, validate=True)
-                    except ValueError:
+                    except (ValueError, binascii.Error):
                         raise ValueError("Invalid base64 evidence")
                     if not binary or len(binary) > 600000:
                         raise ValueError("Evidence must be 1 to 600000 bytes")
