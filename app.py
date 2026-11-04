@@ -57,6 +57,14 @@ def initialize():
         for target, table in MAPPINGS.items():
             db.execute(f"CREATE TABLE IF NOT EXISTS {table} (control_id INTEGER NOT NULL REFERENCES controls(id) ON DELETE CASCADE, {TARGET_COLUMNS[target]}_id INTEGER NOT NULL REFERENCES {target}(id) ON DELETE CASCADE, PRIMARY KEY(control_id, {TARGET_COLUMNS[target]}_id))")
         db.execute("CREATE TABLE IF NOT EXISTS execution_evidence (execution_id INTEGER REFERENCES executions(id) ON DELETE CASCADE, evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, PRIMARY KEY(execution_id,evidence_id))")
+        # Snapshot the control's mappings at execution time; later edits cannot rewrite audit history.
+        for target in MAPPINGS:
+            fk = f"{TARGET_COLUMNS[target]}_id"
+            db.execute(f"""CREATE TABLE IF NOT EXISTS execution_{target} (
+                execution_id INTEGER NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
+                {fk} INTEGER NOT NULL REFERENCES {target}(id),
+                PRIMARY KEY(execution_id, {fk})
+            )""")
         db.execute("CREATE TABLE IF NOT EXISTS evidence_clauses (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, clause_id INTEGER REFERENCES clauses(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,clause_id))")
         db.execute("CREATE TABLE IF NOT EXISTS evidence_processes (evidence_id INTEGER REFERENCES evidence(id) ON DELETE CASCADE, process_id INTEGER REFERENCES processes(id) ON DELETE CASCADE, PRIMARY KEY(evidence_id,process_id))")
         db.execute("CREATE TABLE IF NOT EXISTS audit_clauses (audit_id INTEGER REFERENCES audits(id) ON DELETE CASCADE, clause_id INTEGER REFERENCES clauses(id) ON DELETE CASCADE, PRIMARY KEY(audit_id,clause_id))")
@@ -161,11 +169,41 @@ def evidence_context(db, evidence_id):
     return result
 
 
+def execution_context(db, execution_id):
+    executions = rows(db, "SELECT * FROM executions WHERE id=?", (execution_id,))
+    if not executions:
+        return None
+    result = executions[0]
+    for target in MAPPINGS:
+        fk = f"{TARGET_COLUMNS[target]}_id"
+        result[target] = rows(db, f"""SELECT t.* FROM {target} t
+            JOIN execution_{target} m ON m.{fk}=t.id
+            WHERE m.execution_id=?""", (execution_id,))
+    result["evidence"] = rows(db, """SELECT e.* FROM evidence e
+        JOIN execution_evidence m ON m.evidence_id=e.id
+        WHERE m.execution_id=?""", (execution_id,))
+    return result
+
+
+def finding_context(db, finding_id):
+    items = rows(db, "SELECT * FROM findings WHERE id=?", (finding_id,))
+    if not items:
+        return None
+    finding = items[0]
+    finding["execution"] = execution_context(db, finding["execution_id"]) if finding["execution_id"] else None
+    return finding
+
+
 def execute(db, data):
     control_id = data.get("control_id")
     if not isinstance(control_id, int) or not context(db, control_id):
         raise ValueError("Valid control_id required")
     execution_id = insert(db, "executions", data)
+    # Freeze the linked clauses, processes and objectives for this particular run.
+    for target, table in MAPPINGS.items():
+        fk = f"{TARGET_COLUMNS[target]}_id"
+        db.execute(f"""INSERT INTO execution_{target} (execution_id, {fk})
+            SELECT ?, {fk} FROM {table} WHERE control_id=?""", (execution_id, control_id))
     mapping(db, "execution_evidence", "execution_id", execution_id, "evidence_id", data.get("evidence_ids", []))
     finding_id = None
     if data["status"] == "fail":
@@ -295,6 +333,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "evidence" and parts[3] == "context":
                     result = evidence_context(db, int(parts[2]))
+                    return self.respond(200 if result else 404, result or {"error": "Not found"})
+                if len(parts) == 4 and parts[:2] == ["api", "executions"] and parts[3] == "context":
+                    result = execution_context(db, int(parts[2]))
+                    return self.respond(200 if result else 404, result or {"error": "Not found"})
+                if len(parts) == 4 and parts[:2] == ["api", "findings"] and parts[3] == "context":
+                    result = finding_context(db, int(parts[2]))
                     return self.respond(200 if result else 404, result or {"error": "Not found"})
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     return self.respond(200, rows(db, f"SELECT * FROM {parts[1]} ORDER BY id DESC LIMIT 1000"))
