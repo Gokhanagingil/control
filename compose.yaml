@@ -26,5 +26,19 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  preview:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://app:8080"]
+    depends_on:
+      app:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
 volumes:
   control_data:
