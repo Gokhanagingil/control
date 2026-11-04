@@ -69,10 +69,9 @@ jobs:
           SSH_USER: ${{ secrets.CONTROL_SSH_USER }}
           API_KEY: ${{ secrets.CONTROL_API_KEY }}
           UI_USER: ${{ secrets.CONTROL_UI_USER }}
-          UI_PASSWORD: ${{ secrets.CONTROL_UI_PASSWORD }}
         run: |
           set -euo pipefail
-          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_COOKIE_SECURE=0\n' "$API_KEY" "$UI_USER" |
+          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_COOKIE_SECURE=1\n' "$API_KEY" "$UI_USER" |
             ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'umask 077; cat > /opt/control-grc/.env'
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           cd /opt/control-grc
@@ -83,6 +82,7 @@ jobs:
             docker compose -p control-grc exec -T app python /app/bootstrap.py create > /opt/control-grc/.first-login
             chmod 600 /opt/control-grc/.first-login
           fi
+          docker compose -p control-grc exec -T app python -c 'import os,app; db=app.connect(); user=db.execute("SELECT id FROM users WHERE username=? AND is_active=1 AND password_hash IS NOT NULL", (os.environ["CONTROL_UI_USER"],)).fetchone(); assert user is not None, "INITIAL_USER_MISSING"; print("CONTROL_GRC_USER_READY")'
           for i in $(seq 1 25); do
             if docker compose -p control-grc exec -T app python -c 'import os,urllib.request; request=urllib.request.Request("http://127.0.0.1:8080/api/health", headers={"X-API-Key":os.environ["CONTROL_API_KEY"]}); print(urllib.request.urlopen(request,timeout=4).read().decode())'; then
               echo CONTROL_GRC_HEALTH_OK
@@ -93,6 +93,37 @@ jobs:
           echo CONTROL_GRC_HEALTH_FAIL >&2
           exit 1
           REMOTE
+      - name: Verify externally reachable HTTPS preview
+        env:
+          SSH_HOST: ${{ secrets.CONTROL_SSH_HOST }}
+          SSH_USER: ${{ secrets.CONTROL_SSH_USER }}
+        run: |
+          set -euo pipefail
+          PUBLIC_URL="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          cd /opt/control-grc
+          for i in $(seq 1 30); do
+            url="$(docker compose -p control-grc logs --no-color --tail=150 preview 2>&1 | grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true)"
+            if [ -n "$url" ]; then printf '%s\n' "$url"; exit 0; fi
+            sleep 2
+          done
+          echo PREVIEW_URL_MISSING >&2
+          exit 1
+          REMOTE
+          )"
+          if [[ ! "$PUBLIC_URL" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]; then
+            echo "Invalid preview hostname" >&2
+            exit 1
+          fi
+          for i in $(seq 1 12); do
+            if curl --location --fail --silent --show-error --max-time 12 "$PUBLIC_URL/login" | grep -q 'Control GRC'; then
+              echo "CONTROL_GRC_HTTPS_PREVIEW_OK=$PUBLIC_URL"
+              printf '### Control GRC staging (temporary HTTPS preview)\n\n%s\n' "$PUBLIC_URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "CONTROL_GRC_HTTPS_PREVIEW_UNAVAILABLE" >&2
+          exit 1
       - name: Remove temporary deployment private key copy from server
         env:
           SSH_HOST: ${{ secrets.CONTROL_SSH_HOST }}
