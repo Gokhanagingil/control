@@ -99,7 +99,8 @@ class HTTPTests(unittest.TestCase):
             html = response.read().decode()
             self.assertEqual(response.status, 200)
             self.assertIn("KS GRC", html)
-            self.assertIn("Standart Maddeleri", html)
+            self.assertIn("ksgrc.js", html)
+            self.assertIn("id=\"detail\"", html)
         check = Request(self.base + "/api/me", headers={"Cookie": new_cookie})
         with urlopen(check, timeout=8) as response:
             self.assertEqual(json.loads(response.read())["username"], "test")
