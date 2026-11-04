@@ -1,6 +1,7 @@
 """KS GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import ui
+import ui_v2
 import grc_plus
 import re
 import identity
@@ -360,11 +361,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         if content_type.startswith("text/html"):
-            scripts = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
+            scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
             hashes = ["'sha256-"+base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode()+"'" for t in scripts]
             policy = ("default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
                       "connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; "
-                      "script-src "+(" ".join(hashes) if hashes else "'none'")+"; object-src 'none'")
+                      "script-src 'self' "+(" ".join(hashes) if hashes else "")+"; object-src 'none'")
             self.send_header("Content-Security-Policy", policy)
             if COOKIE_SECURE:
                 self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -519,6 +520,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
         if path_only == "/api/me":
             return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
+        if path_only == "/ksgrc.js":
+            return self.respond(200, (Path(__file__).parent / "ksgrc.js").read_text("utf-8"),
+                                "application/javascript; charset=utf-8")
         if grc_plus.get(self):
             return
         path = urlparse(self.path)
@@ -566,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
                     table = parse_qs(path.query).get("view", ["controls"])[0]
                     if table not in TABLES:
                         table = "controls"
-                    return self.respond(200, ui.page_html(), "text/html; charset=utf-8")
+                    return self.respond(200, ui_v2.page_html(), "text/html; charset=utf-8")
             self.respond(404, {"error": "Not found"})
         except (ValueError, sqlite3.Error) as exc:
             self.respond(400, {"error": str(exc)})
