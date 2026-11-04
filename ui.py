@@ -71,7 +71,7 @@ controls:[['code','Kontrol kodu','text',1],['name','Kontrol adı','text',1],['de
  ['execution_mode','Uygulama','choice:manual|Manuel,automatic|Otomatik',1],['nature','Kontrol türü','choice:preventive|Önleyici,detective|Tespit edici,corrective|Düzeltici,directive|Yönlendirici,compensating|Telafi edici'],
  ['frequency','Sıklık','choice:on_demand|İhtiyaca göre,daily|Günlük,weekly|Haftalık,monthly|Aylık,quarterly|Üç aylık,yearly|Yıllık,continuous|Sürekli'],
  ['method','Kontrol yöntemi / MCP sorgu yönergesi','textarea'],['expected_result','Beklenen sonuç / kabul kriteri','textarea'],['owner','Kontrol sorumlusu']],
-audits:[['name','Denetim adı','text',1],['scope','Kapsam','textarea'],['planned_start','Planlanan başlangıç','date'],['planned_end','Planlanan bitiş','date'],['actual_start','Gerçek başlangıç','date'],['actual_end','Gerçek bitiş','date'],['auditors','Denetçiler'],['auditees','Denetlenenler']],
+audits:[['name','Denetim adı','text',1],['scope','Kapsam','textarea'],['planned_start','Planlanan başlangıç','date'],['planned_end','Planlanan bitiş','date'],['actual_start','Gerçek başlangıç','date'],['actual_end','Gerçek bitiş','date'],['auditors','Denetçiler'],['auditees','Denetlenenler'],['status','Durum','choice:planned|Planlandı,in_progress|Devam ediyor,completed|Tamamlandı,closed|Kapalı']],
 evidence:[['title','Kanıt adı','text',1],['description','Açıklama','textarea'],['reference_url','Harici kanıt referansı / URL'],['source','Kaynak']],
 findings:[['title','Bulgu başlığı','text',1],['control_id','Kontrol','ref:controls'],['audit_id','Denetim','ref:audits'],['description','Bulgu detayı','textarea'],['severity','Önem','choice:low|Düşük,medium|Orta,high|Yüksek,critical|Kritik'],['status','Durum','choice:open|Açık,in_progress|Üzerinde çalışılıyor,closed|Kapalı']]
 };
@@ -167,7 +167,7 @@ async function form(view){
 }
 async function detail(view,id){
  const x=(state.items[view]||[]).find(a=>a.id===id);if(!x)return;
- let html='<div class="panel"><h3>'+escapeHtml(titleOf(x))+'</h3><table>'+Object.entries(x).map(([k,v])=>'<tr><th>'+escapeHtml(k)+'</th><td>'+escapeHtml(v)+'</td></tr>').join('')+'</table></div>';
+ let html='<div class="panel"><h3>'+escapeHtml(titleOf(x))+'</h3><table>'+Object.entries(x).map(([k,v])=>'<tr><th>'+escapeHtml(k)+'</th><td>'+escapeHtml(v)+'</td></tr>').join('')+'</table>'+(meta[view]?'<div class="actions"><button class="btn secondary" id="editRecord">Kaydı düzenle</button></div>':'')+'</div>';
  if(view==='controls'){
   const context=await api('controls/'+id+'/context');
   html+='<div class="panel"><h3>İlişkili kontrol hedefleri, standart maddeleri ve süreçler</h3><p class="hint">Bir kontrol birden fazla süreç, hedef ve maddeyi kapsayabilir.</p><div id="mappings"></div><div class="actions"><button class="btn" id="saveMappings">İlişkileri kaydet</button></div></div>';
@@ -220,6 +220,27 @@ async function detail(view,id){
   html+='<div class="panel"><h3>Denetim kapsamındaki standart maddeleri ('+scope.clauses.length+')</h3><div class="tablewrap"><table>'+scope.clauses.map(x=>'<tr><td>'+escapeHtml(x.standard_code)+'</td><td>'+escapeHtml(x.code)+'</td><td>'+escapeHtml(x.title)+'</td></tr>').join('')+'</table></div></div>';
   modal('Denetim ayrıntıları',html);
  }else modal(labels[view]+' ayrıntıları',html);
+ if($('editRecord'))$('editRecord').onclick=()=>editForm(view,id,x);
+}
+async function editForm(view,id,entry){
+ if(!meta[view])return;
+ const fields=meta[view].filter(([key])=>!(view==='clauses'&&key==='standard_id')&&!(view==='evidence'&&key==='source'));
+ const html=(await Promise.all(fields.map(fieldMarkup))).join('');
+ modal(labels[view]+' kaydını düzenle','<div class="formgrid">'+html+'</div><div class="actions"><button class="btn" id="saveEdit">Değişiklikleri kaydet</button></div>');
+ fields.forEach(([key])=>{
+  const element=document.querySelector('[data-field="'+key+'"]');
+  element.value=entry[key]===null||entry[key]===undefined?'':String(entry[key]);
+ });
+ $('saveEdit').onclick=async()=>{
+  const payload={};const invalid=[];
+  fields.forEach(([key,label,type,required])=>{
+   const value=document.querySelector('[data-field="'+key+'"]').value.trim();
+   if(required&&!value)invalid.push(label);
+   payload[key]=type?.startsWith('ref:')?(value?Number(value):null):value;
+  });
+  if(invalid.length)return toast('Zorunlu alanlar: '+invalid.join(', '));
+  try{await api(view+'/'+id,{method:'PATCH',body:JSON.stringify(payload)});$('dialog').close();toast('Değişiklikler kaydedildi');show(view)}catch(e){toast(e.message)}
+ };
 }
 async function auditWizard(){
  const data=await list('standards');
