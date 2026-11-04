@@ -30,6 +30,7 @@ jobs:
           node --check /tmp/control-login.js
           node --check /tmp/control-change.js
           python3 -m unittest discover -s tests -v
+          CONTROL_API_KEY=preflight-key CONTROL_UI_USER=ci docker compose -f compose.yaml config --quiet
           docker build --tag control-grc:preflight .
       - name: Verify independent deployment secrets
         env:
