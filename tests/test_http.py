@@ -26,6 +26,12 @@ class HTTPTests(unittest.TestCase):
         app.initialize()
         with app.connect() as db:
             identity.provision(db, "test", "initial-test-password-01")
+            identity.provision(db, "operator", "operator-test-password-01")
+            db.execute("UPDATE users SET must_change_password=0 WHERE username='operator'")
+            user=db.execute("SELECT id FROM users WHERE username='operator'").fetchone()
+            token=identity.new_session(db,user["id"])
+            cls.operator_cookie = identity.COOKIE_NAME + "=" + token
+            db.commit()
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -39,11 +45,14 @@ class HTTPTests(unittest.TestCase):
         app.DB, app.EVIDENCE_DIR, app.KEY, app.UI_USER, app.UI_PASSWORD = cls.old
         cls.temp.cleanup()
 
-    def request(self, path, payload=None, *, key=True, method=None):
+    def request(self, path, payload=None, *, key=False, method=None):
         body = None if payload is None else json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"}
-        if key:
+        if key is True:
             headers["X-API-Key"] = app.KEY
+        elif key is False:
+            headers["Cookie"] = self.operator_cookie
+            headers["Origin"] = self.base
         req = Request(
             self.base + "/api/" + path,
             data=body,
@@ -60,9 +69,9 @@ class HTTPTests(unittest.TestCase):
             return error.code, error.read().decode()
 
     def test_authorization_and_html(self):
-        code, _ = self.request("health", key=False)
+        code, _ = self.request("health", key=None)
         self.assertEqual(code, 401)
-        code, data = self.request("health")
+        code, data = self.request("health", key=True)
         self.assertEqual((code, data["status"]), (200, "ok"))
         bad = Request(self.base + "/api/login",
             data=json.dumps({"username": "test", "password": "wrong-password"}).encode(),
@@ -187,6 +196,22 @@ class HTTPTests(unittest.TestCase):
             "control_id": 9999
         }, method="PATCH")
         self.assertEqual(status, 400)
+
+    def test_mcp_key_least_privilege(self):
+        code, _ = self.request("controls", {"code":"MCP-FORBIDDEN","name":"Not allowed"}, key=True)
+        self.assertEqual(code,403)
+        code, controls = self.request("controls",key=True)
+        self.assertEqual(code,200)
+        code, _ = self.request("excel/export?table=all",key=True)
+        self.assertEqual(code,403)
+        code, _ = self.request("admin/summary",key=True)
+        self.assertEqual(code,403)
+        created=controls[0] if controls else None
+        if created:
+            code, result=self.request("executions",{
+                "control_id":created["id"],"status":"pass","source":"mcp"
+            },key=True)
+            self.assertEqual(code,201)
 
     def test_invalid_evidence_and_invalid_control(self):
         code, _ = self.request("evidence/upload", {
