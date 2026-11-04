@@ -5,6 +5,8 @@ import base64
 import binascii
 import hmac
 import hashlib
+import csv
+import io
 from pathlib import Path
 import os
 import sqlite3
@@ -144,6 +146,64 @@ def context(db, control_id):
     for target, table in MAPPINGS.items():
         result[target] = rows(db, f"SELECT t.* FROM {target} t JOIN {table} m ON m.{TARGET_COLUMNS[target]}_id=t.id WHERE m.control_id=?", (control_id,))
     return result
+
+
+def import_clauses_csv(db, standard_id, encoded):
+    if type(standard_id) is not int or not rows(db, "SELECT id FROM standards WHERE id=?", (standard_id,)):
+        raise ValueError("Valid standard_id required")
+    if not isinstance(encoded, str) or len(encoded) > 950000:
+        raise ValueError("csv_base64 required (up to 700 KB)")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        if len(raw) > 700000:
+            raise ValueError("CSV must not exceed 700 KB")
+        content = raw.decode("utf-8-sig")
+    except (ValueError, binascii.Error, UnicodeDecodeError):
+        raise ValueError("CSV must be valid UTF-8 encoded base64")
+    sample = content[:2048]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(content, newline=""), dialect=dialect)
+    if not reader.fieldnames or not {"code", "title"}.issubset(set(reader.fieldnames)):
+        raise ValueError("CSV requires columns code,title (optionally description,parent_code)")
+    requested = []
+    seen = set()
+    for entry in reader:
+        code = (entry.get("code") or "").strip()
+        title = (entry.get("title") or "").strip()
+        if not code and not title:
+            continue
+        if not code or not title or len(code) > 100 or len(title) > 1000:
+            raise ValueError("Every clause requires code and title with valid lengths")
+        if code in seen:
+            raise ValueError(f"Duplicate clause code in CSV: {code}")
+        seen.add(code)
+        requested.append({"code": code, "title": title,
+                          "description": (entry.get("description") or "").strip(),
+                          "parent_code": (entry.get("parent_code") or "").strip()})
+        if len(requested) > 1000:
+            raise ValueError("Import batches are limited to 1000 clauses")
+    if not requested:
+        raise ValueError("CSV contains no clauses")
+    existing = {r["code"]: r["id"] for r in rows(db, "SELECT id,code FROM clauses WHERE standard_id=?", (standard_id,))}
+    imported = 0
+    for entry in requested:
+        if entry["code"] not in existing:
+            existing[entry["code"]] = insert(db, "clauses", {
+                "standard_id": standard_id, "code": entry["code"], "title": entry["title"],
+                "description": entry["description"]
+            })
+            imported += 1
+    for entry in requested:
+        if entry["parent_code"]:
+            parent = existing.get(entry["parent_code"])
+            if not parent or parent == existing[entry["code"]]:
+                raise ValueError(f"Invalid parent_code for {entry['code']}: {entry['parent_code']}")
+            db.execute("UPDATE clauses SET parent_id=? WHERE id=?",
+                       (parent, existing[entry["code"]]))
+    return {"total": len(requested), "imported": imported, "skipped": len(requested) - imported}
 
 
 def audit_scope(db, audit_id):
@@ -364,6 +424,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("JSON object required")
             parts = urlparse(self.path).path.strip("/").split("/")
             with connect() as db:
+                if len(parts) == 5 and parts[:2] == ["api", "standards"] and parts[3:] == ["clauses", "import"]:
+                    return self.respond(201, import_clauses_csv(db, int(parts[2]), payload.get("csv_base64")))
                 if len(parts) == 4 and parts[:2] == ["api", "controls"] and parts[3] == "mappings":
                     control_id = int(parts[2])
                     if not context(db, control_id):
