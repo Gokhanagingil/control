@@ -14,7 +14,7 @@ aside{position:fixed;top:0;bottom:0;left:0;width:244px;background:#122239;color:
 .brand small{font-size:11px;display:block;color:#9db3cd;letter-spacing:.06em;font-weight:500;padding-top:6px}
 .nav-head{font-size:10px;letter-spacing:.17em;color:#8199b8;padding:25px 15px 8px}
 nav button{display:block;width:100%;text-align:left;color:#c6d2e4;border:0;background:transparent;padding:11px 14px;border-radius:10px;margin:2px 0}
-nav button:hover,nav button.active{background:#223b5b;color:white}nav button.active{box-shadow:inset 3px 0 #60a5fa}
+nav button:hover,nav button.active{background:#223b5b;color:white}.logout{background:transparent;border:1px solid #526883;color:#cbd5e1;padding:10px 14px;border-radius:9px;margin:24px 14px 0;cursor:pointer}nav button.active{box-shadow:inset 3px 0 #60a5fa}
 main{margin-left:244px;padding:35px;max-width:1680px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:26px}
 .top h1{font-size:27px;margin:0 0 5px;letter-spacing:-.025em}.sub{color:var(--muted);font-size:14px}
@@ -49,7 +49,7 @@ dialog::backdrop{background:#0e223b90}.dialoghead{display:flex;justify-content:s
 </style>
 </head>
 <body>
-<aside><div class="brand">Control<span> GRC</span><small>GOVERNANCE • RISK • COMPLIANCE</small></div><div class="nav-head">ÇALIŞMA ALANI</div><nav id="nav"></nav></aside>
+<aside><div class="brand">Control<span> GRC</span><small>GOVERNANCE • RISK • COMPLIANCE</small></div><div class="nav-head">ÇALIŞMA ALANI</div><nav id="nav"></nav><button id="logout" class="logout">Oturumu kapat</button></aside>
 <main>
   <div class="top"><div><h1 id="heading">Genel Bakış</h1><div class="sub" id="subtitle">Denetim, kontrol ve kanıt yönetimi</div></div>
   <button class="btn" id="newBtn" style="display:none">+ Yeni kayıt</button></div>
@@ -281,7 +281,7 @@ async function uploadWizard(){
   }catch(e){toast(e.message)}
  };
 }
-$('newBtn').onclick=()=>form(state.view);$('close').onclick=()=>$('dialog').close();show('home');
+$('newBtn').onclick=()=>form(state.view);$('close').onclick=()=>$('dialog').close();$('logout').onclick=async()=>{try{await api('logout',{method:'POST',body:'{}'});location.replace('/login')}catch(e){toast(e.message)}};show('home');
 </script>
 </body>
 </html>
