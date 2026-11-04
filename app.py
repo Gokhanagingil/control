@@ -395,6 +395,20 @@ class Handler(BaseHTTPRequestHandler):
         # MCP can use an independent API key. Browser users need an active session.
         api_key = self.headers.get("X-API-Key", "")
         if KEY and api_key and hmac.compare_digest(api_key, KEY):
+            # Least-privilege: MCP reads GRC catalogs/evidence and records check results.
+            # It cannot change control definitions, export all data, or manage people.
+            route = urlparse(self.path).path
+            parts = route.strip("/").split("/")
+            can_read = (self.command == "GET" and
+                route.startswith("/api/") and not
+                (route.startswith("/api/admin") or route.startswith("/api/excel")))
+            can_write = (self.command == "POST" and
+                (route == "/api/executions" or route == "/api/evidence" or
+                 route == "/api/evidence/upload" or
+                 (len(parts) == 4 and parts[:2] == ["api", "evidence"] and parts[3] == "versions")))
+            if not (can_read or can_write):
+                self.respond(403, {"error": "MCP anahtarı bu işleme yetkili değil"})
+                return False
             self.auth_type = "api_key"
             return True
         user = self.session_user()
