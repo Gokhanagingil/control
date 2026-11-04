@@ -1,4 +1,4 @@
-"""Control GRC MVP: single-file, dependency-free web app and JSON API."""
+"""KS GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import ui
 import identity
@@ -341,7 +341,7 @@ let r=await fetch('/api/REPLACE',{method:'POST',headers:{'Content-Type':'applica
 let v=await r.json();if(r.ok)location.reload();else alert(v.error||'Hata');
 });
 </script>""".replace("REPLACE", table)
-    return f"<!doctype html><html lang='tr'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Control GRC</title><style>{STYLE}</style><header><h1>Control GRC</h1><small>Kontrol • Denetim • Kanıt • Uyum</small></header><div class='layout'><nav>{menu}</nav><main><h2>{LABELS[table]}</h2><section><h3>Yeni kayıt</h3><form>{''.join(inputs)}<button type='submit'>Kaydet</button></form>{note}</section><section><h3>Kayıtlar ({len(items)})</h3><div class='scroll'><table>{headers}{body}</table></div></section></main></div>{script}</html>"
+    return f"<!doctype html><html lang='tr'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>KS GRC</title><style>{STYLE}</style><header><h1>KS GRC</h1><small>Kontrol • Denetim • Kanıt • Uyum</small></header><div class='layout'><nav>{menu}</nav><main><h2>{LABELS[table]}</h2><section><h3>Yeni kayıt</h3><form>{''.join(inputs)}<button type='submit'>Kaydet</button></form>{note}</section><section><h3>Kayıtlar ({len(items)})</h3><div class='scroll'><table>{headers}{body}</table></div></section></main></div>{script}</html>"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -688,5 +688,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     initialize()
-    print(f"Control GRC running at http://{HOST}:{PORT}")
+    print(f"KS GRC running at http://{HOST}:{PORT}")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
