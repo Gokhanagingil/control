@@ -1,0 +1,6 @@
+code,title,description,parent_code
+1,Kontrol ortamı,Örnek iç talimat ana başlığı,
+1.1,Yetkisiz varlıkların tespiti,Örnek kontrol maddesi - gerçek standart metni değildir,1
+1.2,Değişiklik kaydı kontrolü,Değişiklik yönetimi ile konfigürasyon kayıtları karşılaştırılır,1
+2,Kanıt yönetimi,Örnek kanıt saklama kuralı,
+2.1,Kontrol sonucunun kanıtlanması,Ekran çıktısı veya MCP raporu kanıt olarak saklanır,2
