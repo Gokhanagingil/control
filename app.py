@@ -1,6 +1,8 @@
 """KS GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import ui
+import grc_plus
+import re
 import identity
 import threading
 import time
@@ -114,6 +116,7 @@ def initialize():
         ):
             db.execute("INSERT OR IGNORE INTO roles(code,name,description) VALUES (?,?,?)", (code,name,description))
         identity.setup(db)
+        grc_plus.setup(db)
 
 
 def utcnow():
@@ -125,6 +128,7 @@ def insert(db, table, payload):
     data = {k: v for k, v in payload.items() if k in allowed}
     if not data:
         raise ValueError("No valid fields provided")
+    grc_plus.validate_record(table, data)
     if table == "controls":
         if data.get("execution_mode", "manual") not in ALLOWED_MODES:
             raise ValueError("Invalid execution_mode")
@@ -354,6 +358,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if content_type.startswith("text/html"):
+            scripts = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
+            hashes = ["'sha256-"+base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode()+"'" for t in scripts]
+            policy = ("default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
+                      "connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; "
+                      "script-src "+(" ".join(hashes) if hashes else "'none'")+"; object-src 'none'")
+            self.send_header("Content-Security-Policy", policy)
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -410,7 +424,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         origin = self.headers.get("Origin")
         host = self.headers.get("Host")
-        if not origin or not host or urlparse(origin).netloc != host:
+        if not origin or not host or urlparse(origin).netloc != host or (COOKIE_SECURE and urlparse(origin).scheme != 'https'):
             self.respond(403, {"error": "Güvenlik doğrulaması başarısız"})
             return False
         return True
@@ -505,6 +519,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
         if path_only == "/api/me":
             return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
+        if grc_plus.get(self):
+            return
         path = urlparse(self.path)
         parts = path.path.strip("/").split("/")
         try:
@@ -558,6 +574,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         if not self.authorized() or not self.same_origin():
             return
+        if grc_plus.patch(self):
+            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 1024 * 1024:
@@ -574,14 +592,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Unsupported fields in update")
             if not payload:
                 raise ValueError("No fields to update")
+            grc_plus.validate_record(table, payload)
             if table == "controls":
                 if "execution_mode" in payload and payload["execution_mode"] not in ALLOWED_MODES:
                     raise ValueError("Invalid execution_mode")
                 if "nature" in payload and payload["nature"] not in ALLOWED_NATURE:
                     raise ValueError("Invalid nature")
-            if table == "findings" and "status" in payload and payload["status"] not in {"open", "in_progress", "closed"}:
+            if table == "findings" and "status" in payload and payload["status"] not in {"open", "in_progress", "closed", "accepted"}:
                 raise ValueError("Invalid finding status")
-            if table == "audits" and "status" in payload and payload["status"] not in {"planned", "in_progress", "completed", "closed"}:
+            if table == "audits" and "status" in payload and payload["status"] not in {"planned", "in_progress", "completed", "closed", "cancelled"}:
                 raise ValueError("Invalid audit status")
             with connect() as db:
                 setters = ", ".join(f"{field}=?" for field in payload)
@@ -602,6 +621,8 @@ class Handler(BaseHTTPRequestHandler):
         if path_only == "/api/logout":
             return self.handle_logout()
         if not self.authorized() or not self.same_origin():
+            return
+        if grc_plus.post(self):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
