@@ -11,7 +11,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile
-        run: python -m compileall -q app.py tests
+        run: python -m compileall -q app.py ui.py tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Docker build
