@@ -38,6 +38,16 @@ MAPPINGS = {"clauses": "control_clauses", "processes": "control_processes", "obj
 TARGET_COLUMNS = {"clauses": "clause", "processes": "process", "objectives": "objective"}
 ALLOWED_STATUS = {"pass", "fail", "not_applicable", "inconclusive"}
 ALLOWED_MODES = {"manual", "automatic"}
+PATCHABLE = {
+    "audits": set(TABLES["audits"]),
+    "findings": {"title", "description", "severity", "status"},
+    "controls": set(TABLES["controls"]),
+    "standards": set(TABLES["standards"]),
+    "clauses": {"code", "title", "description", "parent_id"},
+    "processes": set(TABLES["processes"]),
+    "objectives": set(TABLES["objectives"]),
+    "evidence": {"title", "description", "reference_url"}
+}
 ALLOWED_NATURE = {"preventive", "detective", "corrective", "directive", "compensating"}
 LABELS = {"standards": "Standartlar", "clauses": "Maddeler", "processes": "Süreçler", "objectives": "Kontrol Hedefleri", "controls": "Kontroller", "audits": "Denetimler", "evidence": "Kanıtlar", "executions": "Kontrol Sonuçları", "findings": "Bulgular"}
 
@@ -410,6 +420,44 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(200, ui.page_html(), "text/html; charset=utf-8")
             self.respond(404, {"error": "Not found"})
         except (ValueError, sqlite3.Error) as exc:
+            self.respond(400, {"error": str(exc)})
+
+    def do_PATCH(self):
+        if not self.authorized():
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 1024 * 1024:
+                return self.respond(413, {"error": "Invalid body size"})
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            parts = urlparse(self.path).path.strip("/").split("/")
+            if len(parts) != 3 or parts[0] != "api" or parts[1] not in PATCHABLE:
+                return self.respond(404, {"error": "Not found"})
+            table = parts[1]
+            record_id = int(parts[2])
+            if set(payload) - PATCHABLE[table]:
+                raise ValueError("Unsupported fields in update")
+            if not payload:
+                raise ValueError("No fields to update")
+            if table == "controls":
+                if "execution_mode" in payload and payload["execution_mode"] not in ALLOWED_MODES:
+                    raise ValueError("Invalid execution_mode")
+                if "nature" in payload and payload["nature"] not in ALLOWED_NATURE:
+                    raise ValueError("Invalid nature")
+            if table == "findings" and "status" in payload and payload["status"] not in {"open", "in_progress", "closed"}:
+                raise ValueError("Invalid finding status")
+            if table == "audits" and "status" in payload and payload["status"] not in {"planned", "in_progress", "completed", "closed"}:
+                raise ValueError("Invalid audit status")
+            with connect() as db:
+                setters = ", ".join(f"{field}=?" for field in payload)
+                args = list(payload.values()) + [record_id]
+                result = db.execute(f"UPDATE {table} SET {setters} WHERE id=?", args)
+                if result.rowcount == 0:
+                    return self.respond(404, {"error": "Record not found"})
+                return self.respond(200, rows(db, f"SELECT * FROM {table} WHERE id=?", (record_id,))[0])
+        except (ValueError, sqlite3.Error, json.JSONDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
 
     def do_POST(self):
