@@ -1,4 +1,4 @@
-# Control GRC — İlk Kullanıcı ve Oturum Yönetimi
+# KS GRC — İlk Kullanıcı ve Oturum Yönetimi
 
 ## Model
 
@@ -44,6 +44,6 @@ Sonraki giriş yeni geçici parolayı değiştirmeyi zorunlu kılar. Hesap adı 
 
 ## Yayın politikası
 
-İlk aşamada Control GRC backend'i `127.0.0.1:18080` adresine bağlıdır; sunucudan bağımsız, NILES container'larını etkilemez. Şifrelenmemiş public HTTP üzerinden parola gönderilmemelidir.
+İlk aşamada KS GRC backend'i `127.0.0.1:18080` adresine bağlıdır; sunucudan bağımsız, NILES container'larını etkilemez. Şifrelenmemiş public HTTP üzerinden parola gönderilmemelidir.
 
 IP/port üzerinden yayın isteniyorsa doğrulanabilir TLS sertifikası olan geçici bir hostname ya da güvenilir özel tünel tercih edilir. IP üzerinde self-signed sertifika varsa tarayıcı güven uyarısı verir; bu üretim yayını değildir.
