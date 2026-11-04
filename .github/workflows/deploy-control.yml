@@ -1,6 +1,10 @@
 name: Deploy Control GRC (isolated)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".control-deploy-request"
 
 permissions:
   contents: read
@@ -15,6 +19,12 @@ jobs:
     environment: control-grc
     steps:
       - uses: actions/checkout@v4
+      - name: Validate application before connecting to NILES host
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q app.py ui.py tests
+          python3 -m unittest discover -s tests -v
+          docker build --tag control-grc:preflight .
       - name: Verify independent deployment secrets
         env:
           HOST: ${{ secrets.CONTROL_SSH_HOST }}
@@ -57,5 +67,19 @@ jobs:
           UI_PASSWORD: ${{ secrets.CONTROL_UI_PASSWORD }}
         run: |
           set -euo pipefail
-          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_UI_PASSWORD=%s\n' "$API_KEY" "$UI_USER" "$UI_PASSWORD" | ssh "$SSH_USER@$SSH_HOST" 'umask 077; cat > /opt/control-grc/.env'
-          ssh "$SSH_USER@$SSH_HOST" 'cd /opt/control-grc && docker compose -p control-grc up -d --build --no-deps && docker compose -p control-grc ps && docker compose -p control-grc exec -T app python -c "import urllib.request,os; print(urllib.request.urlopen(urllib.request.Request(\"http://127.0.0.1:8080/api/health\",headers={\"X-API-Key\":os.environ[\"CONTROL_API_KEY\"]}),timeout=10).read().decode())"'
+          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_UI_PASSWORD=%s\n' "$API_KEY" "$UI_USER" "$UI_PASSWORD" |
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'umask 077; cat > /opt/control-grc/.env'
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          cd /opt/control-grc
+          docker compose -p control-grc up -d --build --no-deps
+          docker compose -p control-grc ps
+          for i in $(seq 1 25); do
+            if docker compose -p control-grc exec -T app python -c 'import os,urllib.request; request=urllib.request.Request("http://127.0.0.1:8080/api/health", headers={"X-API-Key":os.environ["CONTROL_API_KEY"]}); print(urllib.request.urlopen(request,timeout=4).read().decode())'; then
+              echo CONTROL_GRC_HEALTH_OK
+              exit 0
+            fi
+            sleep 2
+          done
+          echo CONTROL_GRC_HEALTH_FAIL >&2
+          exit 1
+          REMOTE
