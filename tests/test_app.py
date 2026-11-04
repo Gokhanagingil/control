@@ -60,6 +60,22 @@ class ControlTests(unittest.TestCase):
             roles = app.rows(db, "SELECT * FROM roles")
             self.assertEqual({r["code"] for r in roles}, {"ADMIN", "AUDITOR", "VIEWER"})
 
+    def test_evidence_integrity_and_persistence(self):
+        import hashlib
+        from pathlib import Path
+        binary = b"example evidence"
+        with app.connect() as db:
+            evidence_id = app.insert(db, "evidence", {
+                "title": "Immutable test evidence",
+                "hash_sha256": hashlib.sha256(binary).hexdigest()
+            })
+            folder = Path(self.tmp.name) / "evidence-files"
+            folder.mkdir()
+            (folder / str(evidence_id)).write_bytes(binary)
+            metadata = app.rows(db, "SELECT hash_sha256 FROM evidence WHERE id=?", (evidence_id,))[0]
+            self.assertEqual(hashlib.sha256((folder / str(evidence_id)).read_bytes()).hexdigest(), metadata["hash_sha256"])
+            self.assertNotEqual(hashlib.sha256(b"tampered").hexdigest(), metadata["hash_sha256"])
+
     def test_reject_invalid_execution(self):
         with app.connect() as db:
             with self.assertRaises(ValueError):
