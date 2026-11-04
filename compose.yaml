@@ -1,0 +1,28 @@
+name: control-grc
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      CONTROL_DB: /data/control.db
+      CONTROL_HOST: 0.0.0.0
+      PORT: "8080"
+      CONTROL_API_KEY: ${CONTROL_API_KEY:?Set CONTROL_API_KEY in a local .env file}
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - control_data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/api/health',headers={'X-API-Key':__import__('os').environ['CONTROL_API_KEY']}),timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  control_data:
