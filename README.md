@@ -70,3 +70,15 @@ docker compose -p control-grc exec -T app python /app/bootstrap.py reset grcadmi
 ```
 
 See `DEPLOYMENT.md` for network access restrictions. User and role tables are present, but all signed-in users have the same application capabilities in this MVP.
+
+## Örnek veri kataloğu (staging)
+
+`seed/catalog.json`: ISO/IEC 20000-1:2018 (75 madde) ve CIS Controls v8.1 (18 aile + 51 seçili Safeguard); madde metinleri değil, özgün Türkçe kısa konu etiketleri.
+
+`seed/operational_scenarios.json`: 28 gerçekçi ancak tamamen **SİMÜLASYON** kontrolü, 19 süreç, 10 hedef, 3 denetim, 28 indirilebilir JSON kanıtı, 32 kontrol çalışması ve otomatik bulgular. ServiceNow veya Dynamics'e herhangi bir canlı sorgu yapılmaz. Gerçek üretim verileriyle karıştırılmamalıdır.
+
+```bash
+python seed_reference.py --apply
+```
+
+Bu içeri aktarma işleminde `seed_runs` işareti kullanılır; aynı paket iki kez çalıştırıldığında veri çoğaltılmaz ve kullanıcı tarafından oluşturulan kontrol kayıtları üzerine yazılmaz. Test amaçlıdır.
