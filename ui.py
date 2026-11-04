@@ -4,7 +4,7 @@ HTML = r"""<!doctype html>
 <html lang="tr">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Control GRC</title>
+<title>KS GRC</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial;--navy:#14243a;--muted:#64748b;--blue:#2563eb;--line:#e5eaf1;--bg:#f5f7fb}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#1e293b}
@@ -49,7 +49,7 @@ dialog::backdrop{background:#0e223b90}.dialoghead{display:flex;justify-content:s
 </style>
 </head>
 <body>
-<aside><div class="brand">Control<span> GRC</span><small>GOVERNANCE • RISK • COMPLIANCE</small></div><div class="nav-head">ÇALIŞMA ALANI</div><nav id="nav"></nav><button id="logout" class="logout">Oturumu kapat</button></aside>
+<aside><div class="brand">KS<span> GRC</span><small>GOVERNANCE • RISK • COMPLIANCE</small></div><div class="nav-head">ÇALIŞMA ALANI</div><nav id="nav"></nav><button id="logout" class="logout">Oturumu kapat</button></aside>
 <main>
   <div class="top"><div><h1 id="heading">Genel Bakış</h1><div class="sub" id="subtitle">Denetim, kontrol ve kanıt yönetimi</div></div>
   <button class="btn" id="newBtn" style="display:none">+ Yeni kayıt</button></div>
