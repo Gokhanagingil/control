@@ -258,3 +258,201 @@ async function openRecord(table,id){
   drawer(LABELS[table]+' • '+titleOf(record),html,footer);
  }catch(e){toast(e.message,false)}
 }
+
+async function detailControl(rec,basic,footer){
+ const [ctx,evidence,clauses,processes,objectives,standards]=await Promise.all([
+  api('controls/'+rec.id+'/context'),api('controls/'+rec.id+'/evidence'),
+  list('clauses'),list('processes'),list('objectives'),list('standards')]);
+ const std=id=>standards.find(s=>s.id===id)?.code||'Standart';
+ const detail='<div class="notice">Bir kontrolün birden çok standart maddesi, süreç ve hedefi olabilir. Güncel bağlantı değişiklikleri eski denetim sonuçlarını değiştirmez.</div>'+
+ '<div class="detail-section"><h3>Kontrole bağlı kanıtlar ('+evidence.length+')</h3>'+
+ chips(evidence,x=>x.title)+'</div>'+
+ checks('clause','Standart maddeleri',clauses,ctx.clauses,x=>std(x.standard_id)+' • '+x.code+' — '+x.title)+
+ checks('process','Süreçler',processes,ctx.processes,x=>x.code+' — '+x.name)+
+ checks('objective','Kontrol hedefleri',objectives,ctx.objectives,x=>x.code+' — '+x.name);
+ drawer('Kontrol • '+rec.code,basic+detail,
+ [['Bağlantıları kaydet',async()=>{
+  try{await api('controls/'+rec.id+'/mappings',{method:'POST',body:JSON.stringify({
+   clauses:selected('clause'),processes:selected('process'),objectives:selected('objective')})});
+   toast('Kontrol bağlantıları kaydedildi');openRecord('controls',rec.id)
+  }catch(e){toast(e.message,false)}
+ }],['Kontrol sonucu gir',()=>executionForm(rec.id),'secondary'],...footer]);
+ bindChecks();
+}
+async function detailAudit(rec,basic,footer){
+ const [scope,evidence,all]=await Promise.all([
+  api('audits/'+rec.id+'/scope'),api('audits/'+rec.id+'/evidence'),list('evidence')]);
+ const scopeHtml='<div class="detail-section"><h3>Kapsamdaki standart maddeleri ('+scope.clauses.length+')</h3>'+
+  '<div class="link-box">'+scope.clauses.map(c=>'<div class="link-option">'+esc(c.standard_code+' '+c.code+' — '+c.title)+'</div>').join('')+
+  '</div></div>';
+ const linked=checks('audit_evidence','Bu denetimin kanıtları',all,evidence,x=>x.title);
+ drawer('Denetim • '+rec.name,basic+scopeHtml+
+ '<div class="notice">Denetim kanıtı doğrudan veya kontrol çalışması üzerinden ilişkilendirilebilir. İki tür bağlantı birlikte görüntülenir.</div>'+linked,
+ [['Kanıtları kaydet',async()=>{
+  try{await api('audits/'+rec.id+'/evidence',{method:'POST',body:JSON.stringify({
+   evidence_ids:selected('audit_evidence')})});
+   toast('Denetim kanıtları kaydedildi');openRecord('audits',rec.id)
+  }catch(e){toast(e.message,false)}
+ }],['Uyumluluğunu göster',()=>navigate('compliance').then(()=>setCompliance('audit',rec.id)),'secondary'],...footer]);
+ bindChecks();
+}
+async function detailEvidence(rec,basic,footer){
+ const [ctx,clauses,processes,audits,controls,standards]=await Promise.all([
+  api('evidence/'+rec.id+'/context'),list('clauses'),list('processes'),
+  list('audits'),list('controls'),list('standards')]);
+ const std=id=>standards.find(x=>x.id===id)?.code||'Standart';
+ const versions='<div class="detail-section"><h3>Dosya sürümleri ('+ctx.files.length+')</h3>'+
+  '<ul class="mini-list">'+ctx.files.map(f=>'<li>'+esc(f.file_name)+' • Sürüm '+f.version+
+   ' <button class="btn secondary small" data-file-version="'+f.version+'">İndir</button></li>').join('')+'</ul>'+
+  '<button class="btn secondary small" id="addVersion">Yeni dosya sürümü</button></div>';
+ const history='<div class="detail-section"><h3>Geçmiş denetimlerde kullanım</h3>'+
+  '<ul class="mini-list">'+(ctx.audit_history.length?
+    ctx.audit_history.map(x=>'<li>'+esc(x.name)+' • '+esc(x.control_code)+
+    ' • '+esc(chosen('executions','status',x.status))+' • '+esc(x.executed_at)+'</li>').join(''):
+    '<li>Denetim kullanım geçmişi henüz yok.</li>')+'</ul></div>';
+ const links=checks('ev_clauses','İlgili standart maddeleri',clauses,ctx.clauses,
+  x=>std(x.standard_id)+' • '+x.code+' — '+x.title)+
+ checks('ev_processes','İlgili süreçler',processes,ctx.processes,x=>x.code+' — '+x.name)+
+ checks('ev_audits','İlişkili denetimler',audits,ctx.audits,x=>x.name)+
+ checks('ev_controls','İlişkili kontroller',controls,ctx.controls,x=>x.code+' — '+x.name);
+ drawer('Kanıt • '+rec.title,basic+versions+history+
+ '<div class="notice">Aynı dosya birden fazla kontrol, süreç, madde ve denetimi destekleyebilir. Önceki sürümleri saklanır.</div>'+links,
+ [['Bağlantıları kaydet',async()=>{
+  try{await api('evidence/'+rec.id+'/mappings',{method:'POST',body:JSON.stringify({
+   clauses:selected('ev_clauses'),processes:selected('ev_processes'),
+   audits:selected('ev_audits'),controls:selected('ev_controls')})});
+   toast('Kanıt bağlantıları güncellendi');openRecord('evidence',rec.id)
+  }catch(e){toast(e.message,false)}
+ }],...footer]);
+ bindChecks();
+ $('detailContent').querySelectorAll('[data-file-version]').forEach(b=>b.onclick=()=>{
+  const v=Number(b.dataset.fileVersion);
+  const file=ctx.files.find(f=>f.version===v);
+  downloadEvidence(rec.id,v,file?.file_name);
+ });
+ $('addVersion').onclick=()=>evidenceForm(rec.id);
+}
+async function downloadEvidence(id,version,name){
+ try{const blob=await api('evidence/'+id+'/download?version='+version);
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=name||('kanit-'+id+'.bin');a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1600)
+ }catch(e){toast(e.message,false)}
+}
+async function detailExecution(table,rec,basic,footer){
+ const ctx=await api(table+'/'+rec.id+'/context');
+ const run=table==='findings'?ctx.execution:ctx;
+ if(!run)return drawer('Bulgu • '+rec.title,basic,footer);
+ const standards=await list('standards');const std=id=>standards.find(s=>s.id===id)?.code||'Standart';
+ const trace='<div class="detail-section"><h3>Kontrol testi anındaki sabit bağlantılar</h3>'+
+ '<p class="intro">Geçmiş denetim izi sonradan değiştirilemez; bağlantılar çalıştırma anından alınır.</p>'+
+ '<h4>Standart maddeleri</h4>'+chips(run.clauses,x=>std(x.standard_id)+' '+x.code+' — '+x.title)+
+ '<h4>Süreçler</h4>'+chips(run.processes,x=>x.code+' — '+x.name)+
+ '<h4>Kontrol hedefleri</h4>'+chips(run.objectives,x=>x.code+' — '+x.name)+
+ '<h4>Kanıtlar</h4>'+chips(run.evidence,x=>x.title)+'</div>';
+ let actionsPart='';
+ if(table==='findings'){
+  const acts=(await list('actions')).filter(a=>a.finding_id===rec.id);
+  actionsPart='<div class="detail-section"><h3>Düzeltici faaliyetler ('+acts.length+')</h3>'+
+   chips(acts,x=>x.code+' — '+x.title)+'</div>';
+  footer.unshift(['Düzeltici faaliyet aç',()=>createForm('actions',{
+   code:'KS-DF-'+rec.id+'-'+String(Date.now()).slice(-6),
+   title:'Bulgu için düzeltici faaliyet: '+rec.title,
+   finding_id:rec.id,control_id:rec.control_id})]);
+ }
+ drawer((table==='findings'?'Bulgu':'Kontrol sonucu')+' • #'+rec.id,basic+trace+actionsPart,footer);
+}
+async function detailStandard(rec,basic,footer){
+ const clauses=(await list('clauses')).filter(c=>c.standard_id===rec.id);
+ drawer('Standart • '+rec.code,basic+
+  '<div class="detail-section"><h3>Madde kataloğu ('+clauses.length+')</h3><div class="link-box">'+
+  clauses.map(c=>'<div class="link-option">'+esc(c.code+' — '+c.title)+'</div>').join('')+
+  '</div></div><div class="notice">Maddeler çalışma başlığıdır; telifli resmî gereklilik metninin yerini tutmaz.</div>',
+ [['Bu standart için denetim başlat',()=>auditWizard(rec.id)],...footer]);
+}
+async function detailLinked(table,rec,basic,footer){
+ const linked=await api(table+'/'+rec.id+'/controls');
+ const controls=await list('controls');
+ drawer(LABELS[table]+' • '+rec.code,basic+
+ checks('related_controls','İlgili kontroller',controls,linked,x=>x.code+' — '+x.name),
+ [['Kontrolleri kaydet',async()=>{
+  try{await api(table+'/'+rec.id+'/controls',{method:'POST',body:JSON.stringify({
+   control_ids:selected('related_controls')})});
+   toast('Kontrol bağlantıları kaydedildi');openRecord(table,rec.id)
+  }catch(e){toast(e.message,false)}
+ }],...footer]);
+ bindChecks();
+}
+async function evidenceForm(existingId=null){
+ const version=Number.isInteger(existingId);
+ const [audits,controls,clauses,processes,standards]=version?[[],[],[],[],[]]:
+  await Promise.all(['audits','controls','clauses','processes','standards'].map(x=>list(x)));
+ const std=id=>standards.find(s=>s.id===id)?.code||'';
+ let html='<div class="notice">'+(version?'Yeni dosya sürümü eklenecek; eski sürüm saklanır.':
+  'Kanıtı istediğin denetime, sürece, kontrole ve maddeye bağlayabilirsin.')+
+  '<br>PDF, resim, Office dosyası, CSV, TXT, JSON, XML, ZIP ve EML; azami 20 MB.</div>';
+ if(!version)html+='<div class="formgrid">'+(await Promise.all(
+  ['title','description','source','confidentiality','period_start','period_end','expires_at'].map(k=>fieldInput('evidence',k))
+ )).join('')+'</div>';
+ html+='<label class="field">Dosya seç<input id="evidenceFile" type="file"></label>';
+ if(!version)html+=checks('ev_audits','Denetimler',audits,[],x=>x.name)+
+  checks('ev_controls','Kontroller',controls,[],x=>x.code+' — '+x.name)+
+  checks('ev_clauses','Standart maddeleri',clauses,[],x=>std(x.standard_id)+' '+x.code+' — '+x.title)+
+  checks('ev_processes','Süreçler',processes,[],x=>x.code+' — '+x.name);
+ drawer(version?'Kanıt • Yeni sürüm':'Yeni kanıt yükle',html,[['Kaydet',async()=>{
+  const f=$('evidenceFile')?.files?.[0];if(!f)return toast('Dosya seçmelisin',false);
+  if(!f.size||f.size>20*1024*1024)return toast('Dosya 1 bayt–20 MB arasında olmalı',false);
+  try{
+   const payload={file_name:f.name,content_base64:await fileToBase64(f)};
+   if(!version){
+    Object.assign(payload,formValues('evidence',['title','description','source','confidentiality','period_start','period_end','expires_at']));
+    payload.audits=selected('ev_audits');payload.controls=selected('ev_controls');
+    payload.clauses=selected('ev_clauses');payload.processes=selected('ev_processes');
+   }
+   const res=await api(version?'evidence/'+existingId+'/versions':'evidence/upload',
+    {method:'POST',body:JSON.stringify(payload)});
+   invalidate('evidence');toast('Kanıt dosyası saklandı');await navigate('evidence');openRecord('evidence',res.id)
+  }catch(e){toast(e.message,false)}
+ }],['Vazgeç',closeDetail,'secondary']]);
+ bindChecks();
+}
+async function executionForm(preselect=null){
+ const [controls,audits,evidence]=await Promise.all(['controls','audits','evidence'].map(x=>list(x)));
+ const results=STATE.meta.choices?.executions?.status||{pass:'Başarılı',fail:'Başarısız',inconclusive:'Belirsiz',not_applicable:'Uygulanamaz'};
+ const html='<div class="formgrid"><label class="field">Kontrol<select id="runControl">'+controls.map(x=>
+ '<option value="'+x.id+'"'+(x.id===preselect?' selected':'')+'>'+esc(x.code+' — '+x.name)+'</option>').join('')+'</select></label>'+
+ '<label class="field">Denetim<select id="runAudit"><option value="">Sürekli kontrol / denetim dışı</option>'+
+ audits.map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('')+'</select></label>'+
+ '<label class="field">Kontrol sonucu<select id="runStatus">'+Object.entries(results).map(([k,v])=>
+ '<option value="'+k+'">'+esc(v)+'</option>').join('')+'</select></label>'+
+ '<label class="field">Kaynak<select id="runSource"><option value="manual">Manuel</option><option value="mcp">MCP</option></select></label>'+
+ '<label class="field wide">Gözlem ve gerekçe<textarea id="runDetails" placeholder="Kriter, örneklem ve kontrol sonucunu kaydet…"></textarea></label></div>'+
+ checks('runEvidence','Kullanılan kanıtlar',evidence,[],x=>x.title);
+ drawer('Kontrol sonucu oluştur',html,[['Sonucu kaydet',async()=>{
+  try{const payload={control_id:Number($('runControl').value),status:$('runStatus').value,
+   source:$('runSource').value,details:$('runDetails').value,evidence_ids:selected('runEvidence')};
+   if($('runAudit').value)payload.audit_id=Number($('runAudit').value);
+   const saved=await api('executions',{method:'POST',body:JSON.stringify(payload)});
+   invalidate('executions','findings');toast(saved.finding_id?'Başarısız kontrol için bulgu oluşturuldu':'Kontrol sonucu kaydedildi');
+   await navigate('executions');openRecord('executions',saved.execution_id);
+  }catch(e){toast(e.message,false)}
+ }],['Vazgeç',closeDetail,'secondary']]);bindChecks();
+}
+async function auditWizard(selectedStandard=null){
+ const standards=await list('standards');
+ const html='<div class="notice">Seçilen standardın mevcut tüm maddeleri yeni denetimin kapsamına otomatik eklenecek.</div>'+
+ '<label class="field">Standart<select id="auditStandard">'+standards.map(s=>
+  '<option value="'+s.id+'"'+(s.id===selectedStandard?' selected':'')+'>'+esc(s.code+' — '+s.name)+'</option>').join('')+'</select></label>'+
+ '<label class="field">Denetim adı<input id="auditName" placeholder="2026 İç Denetim"></label>'+
+ '<div class="formgrid"><label class="field">Planlanan başlangıç<input id="auditStart" type="date"></label>'+
+ '<label class="field">Planlanan bitiş<input id="auditEnd" type="date"></label></div>';
+ drawer('Standarttan denetim oluştur',html,[['Denetimi oluştur',async()=>{
+  if(!$('auditName').value.trim())return toast('Denetim adı gerekli',false);
+  try{const saved=await api('audits/from-standard',{method:'POST',body:JSON.stringify({
+    standard_id:Number($('auditStandard').value),name:$('auditName').value.trim(),
+    planned_start:$('auditStart').value,planned_end:$('auditEnd').value})});
+   invalidate('audits');toast(saved.clause_count+' maddeyle denetim oluşturuldu');
+   await navigate('audits');openRecord('audits',saved.audit_id)
+  }catch(e){toast(e.message,false)}
+ }],['Vazgeç',closeDetail,'secondary']]);
+}
