@@ -37,6 +37,23 @@ class ControlTests(unittest.TestCase):
             self.assertIsNone(passed["finding_id"])
             self.assertEqual(len(app.rows(db, "SELECT * FROM findings")), 1)
 
+    def test_audit_scope_and_evidence_history(self):
+        with app.connect() as db:
+            standard = app.insert(db, "standards", {"code": "ISO", "name": "Example"})
+            c1 = app.insert(db, "clauses", {"standard_id": standard, "code": "1", "title": "First"})
+            c2 = app.insert(db, "clauses", {"standard_id": standard, "code": "2", "title": "Second"})
+            audit = app.insert(db, "audits", {"name": "Example audit"})
+            app.mapping(db, "audit_clauses", "audit_id", audit, "clause_id", [c1, c2])
+            self.assertEqual(len(app.audit_scope(db, audit)["clauses"]), 2)
+            control = app.insert(db, "controls", {"code": "T", "name": "Test"})
+            evidence = app.insert(db, "evidence", {"title": "Log reference"})
+            app.mapping(db, "evidence_clauses", "evidence_id", evidence, "clause_id", [c1, c2])
+            app.execute(db, {"control_id": control, "audit_id": audit, "status": "pass", "evidence_ids": [evidence]})
+            app.execute(db, {"control_id": control, "status": "pass", "evidence_ids": [evidence]})
+            history = app.evidence_context(db, evidence)
+            self.assertEqual(len(history["clauses"]), 2)
+            self.assertEqual(len(history["executions"]), 2)
+
     def test_roles_seed_idempotent(self):
         app.initialize()
         with app.connect() as db:
