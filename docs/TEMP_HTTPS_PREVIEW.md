@@ -1,9 +1,9 @@
-# Control GRC — Geçici HTTPS deneme yayını
+# KS GRC — Geçici HTTPS deneme yayını
 
 Bu sürüm, NILES uygulamasına veya mevcut NILES proxy/portlarına dokunmadan ayrı Docker Compose projesinde çalışır.
 
 - Backend: sunucu üzerinde yalnızca `127.0.0.1:18080` (MCP API ve sağlık kontrolü).
-- İnternetten erişim: sadece Control GRC'nin `preview` container'ının açtığı geçici `https://*.trycloudflare.com` adresi.
+- İnternetten erişim: sadece KS GRC'nin `preview` container'ının açtığı geçici `https://*.trycloudflare.com` adresi.
 - Cloudflare Quick Tunnel hesabı, DNS kaydı, sunucuda yeni gelen port veya firewall değişikliği gerektirmez.
 - Uygulama giriş yapmadan kontrol/denetim/kanıt kayıtlarını göstermez.
 - Browser cookie'si `HttpOnly`, `SameSite=Strict`, `Secure`; oturum sunucu tarafındadır.
@@ -33,7 +33,7 @@ cd /opt/control-grc
 docker compose -p control-grc stop preview
 ```
 
-Bu işlem Control GRC backend'i, kalıcı veritabanını ve NILES servislerini durdurmaz.
+Bu işlem KS GRC backend'i, kalıcı veritabanını ve NILES servislerini durdurmaz.
 
 ## Not
 
