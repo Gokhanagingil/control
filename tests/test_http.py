@@ -129,6 +129,21 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(len(evidence_context["clauses"]), 2)
         self.assertEqual(len(evidence_context["executions"]), 1)
 
+    def test_bulk_standard_csv_import_is_idempotent(self):
+        status, standard = self.request("standards", {"code": "BULK-ISO", "name": "Authorized authority document"})
+        self.assertEqual(status, 201)
+        sid = standard["id"]
+        csv_bytes = b"code,title,description,parent_code\n9,Top-level requirement,Description,\n9.1,Child requirement,Detail,9\n"
+        encoded = base64.b64encode(csv_bytes).decode()
+        status, result = self.request(f"standards/{sid}/clauses/import", {"csv_base64": encoded})
+        self.assertEqual((status, result["imported"], result["total"]), (201, 2, 2))
+        status, repeat = self.request(f"standards/{sid}/clauses/import", {"csv_base64": encoded})
+        self.assertEqual((status, repeat["imported"], repeat["skipped"]), (201, 0, 2))
+        status, audit = self.request("audits/from-standard", {"standard_id": sid, "name": "CSV audit"})
+        self.assertEqual((status, audit["clause_count"]), (201, 2))
+        status, scope = self.request(f"audits/{audit['audit_id']}/scope")
+        self.assertEqual({c["code"] for c in scope["clauses"]}, {"9", "9.1"})
+
     def test_invalid_evidence_and_invalid_control(self):
         code, _ = self.request("evidence/upload", {
             "title": "Bad file", "content_base64": "&&not-valid-base64"
