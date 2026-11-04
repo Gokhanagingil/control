@@ -1,6 +1,9 @@
 """Control GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import ui
+import identity
+import threading
+import time
 import base64
 import binascii
 import hmac
@@ -20,6 +23,9 @@ EVIDENCE_DIR = os.getenv("CONTROL_EVIDENCE_DIR", str(Path(DB).parent / "evidence
 KEY = os.getenv("CONTROL_API_KEY", "")
 UI_USER = os.getenv("CONTROL_UI_USER", "")
 UI_PASSWORD = os.getenv("CONTROL_UI_PASSWORD", "")
+COOKIE_SECURE = os.getenv("CONTROL_COOKIE_SECURE", "0") == "1"
+LOGIN_FAILURES = {}
+LOGIN_LOCK = threading.Lock()
 HOST = os.getenv("CONTROL_HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8080"))
 
@@ -107,6 +113,7 @@ def initialize():
             ("VIEWER", "Görüntüleyici", "Salt okunur erişim (gelecekte uygulanacak)")
         ):
             db.execute("INSERT OR IGNORE INTO roles(code,name,description) VALUES (?,?,?)", (code,name,description))
+        identity.setup(db)
 
 
 def utcnow():
@@ -338,13 +345,17 @@ let v=await r.json();if(r.ok)location.reload();else alert(v.error||'Hata');
 
 
 class Handler(BaseHTTPRequestHandler):
-    def respond(self, code, data, content_type="application/json; charset=utf-8"):
+    def respond(self, code, data, content_type="application/json; charset=utf-8", headers=None):
         raw = data.encode("utf-8") if isinstance(data, str) else json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(raw)
 
@@ -354,30 +365,146 @@ class Handler(BaseHTTPRequestHandler):
         db.commit()
         return self.respond(code, payload)
 
+    def send_redirect(self, dest):
+        self.send_response(303)
+        self.send_header("Location", dest)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def session_user(self):
+        with connect() as db:
+            return identity.read_session(db, self.headers.get("Cookie", ""))
+
     def authorized(self):
-        # Require an explicit credential even on loopback; never expose anonymous writes.
+        # MCP can use an independent API key. Browser users need an active session.
         api_key = self.headers.get("X-API-Key", "")
         if KEY and api_key and hmac.compare_digest(api_key, KEY):
+            self.auth_type = "api_key"
             return True
-        authorization = self.headers.get("Authorization", "")
-        if UI_USER and UI_PASSWORD and authorization.startswith("Basic "):
-            try:
-                credentials = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
-                username, password = credentials.split(":", 1)
-                if hmac.compare_digest(username, UI_USER) and hmac.compare_digest(password, UI_PASSWORD):
-                    return True
-            except (ValueError, UnicodeDecodeError):
-                pass
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="Control GRC"')
-        self.send_header("Content-Length", "0")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
+        user = self.session_user()
+        if user:
+            self.auth_type = "session"
+            self.current_user = user
+            if user["must_change_password"] and not (
+                self.path.startswith("/api/me") or
+                self.path.startswith("/api/change-password") or
+                self.path.startswith("/api/logout") or
+                self.path.startswith("/change-password")
+            ):
+                if self.path.startswith("/api/"):
+                    self.respond(403, {"error": "Parolanızı değiştirmeniz gerekiyor"})
+                else:
+                    self.send_redirect("/change-password")
+                return False
+            return True
+        if self.path.startswith("/api/"):
+            self.respond(401, {"error": "Oturum açılması gerekiyor"})
+        else:
+            self.send_redirect("/login")
         return False
 
+    def same_origin(self):
+        # Session-authenticated mutations accept only same-origin browser requests.
+        if getattr(self, "auth_type", None) != "session":
+            return True
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host")
+        if not origin or not host or urlparse(origin).netloc != host:
+            self.respond(403, {"error": "Güvenlik doğrulaması başarısız"})
+            return False
+        return True
+
+    def credentials_payload(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if not 0 < length <= 8192:
+            raise ValueError("Geçersiz istek boyutu")
+        if "application/json" not in self.headers.get("Content-Type", ""):
+            raise ValueError("JSON içerik tipi gerekli")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("JSON nesnesi gerekli")
+        return payload
+
+    def handle_login(self):
+        try:
+            payload = self.credentials_payload()
+            username = payload.get("username", "")
+            password = payload.get("password", "")
+            if not isinstance(username, str) or not isinstance(password, str):
+                raise ValueError("Kullanıcı adı ve parola gerekli")
+            key = (self.client_address[0], username)
+            with LOGIN_LOCK:
+                timestamps = [t for t in LOGIN_FAILURES.get(key, []) if t > time.monotonic() - 300]
+                LOGIN_FAILURES[key] = timestamps
+                if len(timestamps) >= 8:
+                    return self.respond(429, {"error": "Çok fazla giriş denemesi; daha sonra tekrar deneyin"})
+            with connect() as db:
+                account = identity.authenticate(db, username, password)
+                if not account:
+                    with LOGIN_LOCK:
+                        LOGIN_FAILURES.setdefault(key, []).append(time.monotonic())
+                    return self.respond(401, {"error": "Kullanıcı adı veya parola yanlış"})
+                session = identity.new_session(db, account["id"])
+                db.commit()
+            with LOGIN_LOCK:
+                LOGIN_FAILURES.pop(key, None)
+            self.respond(200, {"username": account["username"],
+                               "must_change_password": bool(account["must_change_password"])},
+                headers={"Set-Cookie": identity.session_cookie(session, secure=COOKIE_SECURE)})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self.respond(400, {"error": str(exc)})
+
+    def handle_change_password(self):
+        if not self.authorized() or not self.same_origin():
+            return
+        if getattr(self, "auth_type", None) != "session":
+            return self.respond(403, {"error": "Kullanıcı oturumu gerekli"})
+        try:
+            payload = self.credentials_payload()
+            previous, updated = payload.get("current_password"), payload.get("new_password")
+            if not isinstance(previous, str) or not isinstance(updated, str):
+                raise ValueError("Parolalar gerekli")
+            if previous == updated:
+                raise ValueError("Yeni parola eski paroladan farklı olmalı")
+            with connect() as db:
+                account = db.execute("SELECT password_hash FROM users WHERE id=?",
+                                     (self.current_user["id"],)).fetchone()
+                if not account or not identity.verify_password(previous, account["password_hash"]):
+                    return self.respond(403, {"error": "Mevcut parola yanlış"})
+                encoded = identity.hash_password(updated)
+                db.execute("""UPDATE users SET password_hash=?, must_change_password=0,
+                    updated_at=? WHERE id=?""",
+                    (encoded, identity.now().isoformat(), self.current_user["id"]))
+                db.execute("DELETE FROM auth_sessions WHERE user_id=?", (self.current_user["id"],))
+                session = identity.new_session(db, self.current_user["id"])
+                db.commit()
+            self.respond(200, {"changed": True},
+                headers={"Set-Cookie": identity.session_cookie(session, secure=COOKIE_SECURE)})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self.respond(400, {"error": str(exc)})
+
+    def handle_logout(self):
+        if not self.authorized() or not self.same_origin():
+            return
+        if getattr(self, "auth_type", None) != "session":
+            return self.respond(403, {"error": "Kullanıcı oturumu gerekli"})
+        with connect() as db:
+            identity.revoke(db, self.headers.get("Cookie", ""))
+            db.commit()
+        self.respond(200, {"logged_out": True},
+            headers={"Set-Cookie": identity.session_cookie("", secure=COOKIE_SECURE, clear=True)})
+
     def do_GET(self):
+        path_only = urlparse(self.path).path
+        if path_only == "/login":
+            return self.respond(200, identity.LOGIN_HTML, "text/html; charset=utf-8")
         if not self.authorized():
             return
+        if path_only == "/change-password":
+            return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
+        if path_only == "/api/me":
+            return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
         path = urlparse(self.path)
         parts = path.path.strip("/").split("/")
         try:
@@ -429,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {"error": str(exc)})
 
     def do_PATCH(self):
-        if not self.authorized():
+        if not self.authorized() or not self.same_origin():
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -467,7 +594,14 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {"error": str(exc)})
 
     def do_POST(self):
-        if not self.authorized():
+        path_only = urlparse(self.path).path
+        if path_only == "/api/login":
+            return self.handle_login()
+        if path_only == "/api/change-password":
+            return self.handle_change_password()
+        if path_only == "/api/logout":
+            return self.handle_logout()
+        if not self.authorized() or not self.same_origin():
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
