@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: control-grc-deploy
@@ -85,3 +86,22 @@ jobs:
           echo CONTROL_GRC_HEALTH_FAIL >&2
           exit 1
           REMOTE
+      - name: Report deployment status on commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_RESULT" = "success" ]; then
+            state=success
+            description="Control GRC deployed; container health OK"
+          else
+            state=failure
+            description="Control GRC deployment did not complete; inspect Actions"
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" \
+            -f context="control-grc/deploy" \
+            -f description="$description" \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
