@@ -12,3 +12,5 @@ Authenticated-user rollout 2026-11-04: first-login bootstrap, hashed DB account,
 2026-11-04: HTTPS Quick Tunnel preview, Secure cookie, first-user existence check. Ref 7685e8dd76fc2fa6e4d9ef86a1000d373eb19610.
 
 2026-11-04 KS GRC seed data release 5e5b44cb91ec3d753ddc95406a77213dc319b434: 144 framework clauses, 28 controls, 3 audits, 28 evidence artifacts, idempotent staging seed.
+
+2026-11-04 KS GRC traceability UI release c4a3f9ddf261ef45eef368ab5c609c2e2d6c4e71: findings/executions now display linked clauses, processes, objectives and evidence.
