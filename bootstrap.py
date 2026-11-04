@@ -12,14 +12,17 @@ import identity
 
 
 def main():
-    if len(sys.argv) not in (3, 4) or sys.argv[1] not in ("create", "reset"):
-        raise SystemExit("Usage: python bootstrap.py create|reset USERNAME [--force]")
-    command, username = sys.argv[1:3]
+    if len(sys.argv) == 2 and sys.argv[1] == "create":
+        command, username = "create", os.environ.get("CONTROL_UI_USER", "grcadmin")
+    elif len(sys.argv) in (3, 4) and sys.argv[1] in ("create", "reset"):
+        command, username = sys.argv[1:3]
+    else:
+        raise SystemExit("Usage: python bootstrap.py create [USERNAME] | reset USERNAME --force")
     if not username or not username.isascii() or not all(c.isalnum() or c in "_.-" for c in username):
         raise SystemExit("Invalid account name")
     if command == "reset" and (len(sys.argv) != 4 or sys.argv[3] != "--force"):
         raise SystemExit("Reset requires explicit --force")
-    if command == "create" and len(sys.argv) != 3:
+    if command == "create" and len(sys.argv) not in (2, 3):
         raise SystemExit("Invalid create arguments")
     app.initialize()
     with app.connect() as db:
