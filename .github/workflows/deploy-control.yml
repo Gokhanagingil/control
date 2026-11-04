@@ -23,9 +23,12 @@ jobs:
       - name: Validate application before connecting to NILES host
         run: |
           set -euo pipefail
-          python3 -m compileall -q app.py ui.py tests
+          python3 -m compileall -q app.py ui.py identity.py bootstrap.py tests
           python3 -c "import ui; open('/tmp/control-ui.js','w').write(ui.HTML.split('<script>',1)[1].split('</script>',1)[0])"
           node --check /tmp/control-ui.js
+          python3 -c "import identity; open('/tmp/control-login.js','w').write(identity.LOGIN_HTML.split('<script>',1)[1].split('</script>',1)[0]); open('/tmp/control-change.js','w').write(identity.CHANGE_HTML.split('<script>',1)[1].split('</script>',1)[0])"
+          node --check /tmp/control-login.js
+          node --check /tmp/control-change.js
           python3 -m unittest discover -s tests -v
           docker build --tag control-grc:preflight .
       - name: Verify independent deployment secrets
@@ -35,11 +38,10 @@ jobs:
           KEY: ${{ secrets.CONTROL_SSH_KEY }}
           API_KEY: ${{ secrets.CONTROL_API_KEY }}
           UI_USER: ${{ secrets.CONTROL_UI_USER }}
-          UI_PASSWORD: ${{ secrets.CONTROL_UI_PASSWORD }}
         run: |
           test -n "$HOST" && test -n "$USER" && test -n "$KEY"
           test "${#API_KEY}" -ge 32
-          test -n "$UI_USER" && test "${#UI_PASSWORD}" -ge 24
+          test -n "$UI_USER"
       - name: Prepare SSH
         env:
           SSH_KEY: ${{ secrets.CONTROL_SSH_KEY }}
@@ -60,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$SSH_USER@$SSH_HOST" 'mkdir -p /opt/control-grc'
-          scp app.py ui.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
+          scp app.py ui.py identity.py bootstrap.py Dockerfile compose.yaml "$SSH_USER@$SSH_HOST:/opt/control-grc/"
       - name: Deploy only Control GRC
         env:
           SSH_HOST: ${{ secrets.CONTROL_SSH_HOST }}
@@ -70,12 +72,17 @@ jobs:
           UI_PASSWORD: ${{ secrets.CONTROL_UI_PASSWORD }}
         run: |
           set -euo pipefail
-          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_UI_PASSWORD=%s\n' "$API_KEY" "$UI_USER" "$UI_PASSWORD" |
+          printf 'CONTROL_API_KEY=%s\nCONTROL_UI_USER=%s\nCONTROL_COOKIE_SECURE=0\n' "$API_KEY" "$UI_USER" |
             ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'umask 077; cat > /opt/control-grc/.env'
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           cd /opt/control-grc
           docker compose -p control-grc up -d --build --no-deps
           docker compose -p control-grc ps
+          if [ ! -f /opt/control-grc/.first-login ]; then
+            umask 077
+            docker compose -p control-grc exec -T app python /app/bootstrap.py create > /opt/control-grc/.first-login
+            chmod 600 /opt/control-grc/.first-login
+          fi
           for i in $(seq 1 25); do
             if docker compose -p control-grc exec -T app python -c 'import os,urllib.request; request=urllib.request.Request("http://127.0.0.1:8080/api/health", headers={"X-API-Key":os.environ["CONTROL_API_KEY"]}); print(urllib.request.urlopen(request,timeout=4).read().decode())'; then
               echo CONTROL_GRC_HEALTH_OK
