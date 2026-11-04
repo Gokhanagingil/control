@@ -4,3 +4,5 @@ Release: 9d2896eb825a99a8ba42cd7c0a6840ecbf8b14b8
 Target: /opt/control-grc (independent NILES host Docker Compose project)
 Gates: 10 API/unit tests, JavaScript syntax, Docker build, authenticated live health check
 Highlights: bulk clauses CSV import, editable findings/audits, evidence mapping and atomic writes
+
+Final security cleanup: remove temporary /root/.ssh/control_grc_deploy private-key copy after verified Control GRC health check.
