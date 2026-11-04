@@ -186,10 +186,19 @@ async function detail(view,id){
   };
  }else if(view==='evidence'){
   const context=await api('evidence/'+id+'/context');
-  html+='<div class="panel"><h3>Kanıtın kullanım geçmişi</h3><p>İlgili maddeler: '+context.clauses.map(x=>escapeHtml(x.code)).join(', ')+'</p><p>Süreçler: '+context.processes.map(x=>escapeHtml(x.name)).join(', ')+'</p><p>İlişkili kontrol çalışmaları: '+context.executions.length+'</p>'+(x.hash_sha256?'<button class="btn" id="download">Dosyayı indir</button>':'')+'</div>';
+  const [clauses,processes]=await Promise.all([list('clauses'),list('processes')]);
+  html+='<div class="panel"><h3>Kanıtın kullanım geçmişi</h3><p>İlgili maddeler: '+(context.clauses.map(x=>escapeHtml(x.code)).join(', ')||'—')+'</p><p>Süreçler: '+(context.processes.map(x=>escapeHtml(x.name)).join(', ')||'—')+'</p><p>İlişkili kontrol çalışmaları: '+context.executions.length+'</p>'+(x.hash_sha256?'<button class="btn secondary" id="download">Dosyayı indir</button>':'')+'</div>';
+  html+='<div class="panel"><h3>Kanıtın kapsadığı süreç ve standart maddeleri</h3><p class="hint">Kanıt birden fazla madde ve süreci destekleyebilir.</p>'+
+    '<div class="formgrid"><label class="field">Standart maddeleri<select id="evMapClauses" multiple class="selectlist">'+clauses.map(c=>'<option value="'+c.id+'" '+(context.clauses.some(x=>x.id===c.id)?'selected':'')+'>'+escapeHtml(c.code+' — '+c.title)+'</option>').join('')+'</select></label>'+
+    '<label class="field">Süreçler<select id="evMapProcesses" multiple class="selectlist">'+processes.map(p=>'<option value="'+p.id+'" '+(context.processes.some(x=>x.id===p.id)?'selected':'')+'>'+escapeHtml(p.name)+'</option>').join('')+'</select></label></div>'+
+    '<div class="actions"><button class="btn" id="saveEvidenceMaps">İlişkileri kaydet</button></div></div>';
   modal('Kanıt ayrıntıları',html);
+  $('saveEvidenceMaps').onclick=async()=>{
+   const payload={clauses:Array.from($('evMapClauses').selectedOptions).map(o=>Number(o.value)),processes:Array.from($('evMapProcesses').selectedOptions).map(o=>Number(o.value))};
+   try{await api('evidence/'+id+'/mappings',{method:'POST',body:JSON.stringify(payload)});$('dialog').close();toast('Kanıt ilişkileri güncellendi');show(view)}catch(e){toast(e.message)}
+  };
   if($('download'))$('download').onclick=async()=>{
-   try{const blob=await api('evidence/'+id+'/download');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='evidence-'+id+'.bin';a.click();URL.revokeObjectURL(url)}catch(e){toast(e.message)}
+   try{const blob=await api('evidence/'+id+'/download');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='evidence-'+id+'.bin';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){toast(e.message)}
   };
  }else if(view==='audits'){
   const scope=await api('audits/'+id+'/scope');
@@ -215,14 +224,24 @@ async function runControl(){
  };
 }
 async function uploadWizard(){
- modal('Kanıt dosyası yükle','<div class="formgrid"><label class="field wide">Kanıt başlığı<input id="evTitle" placeholder="Örn. CMDB keşif raporu"></label><label class="field wide">Dosya (en fazla 600 KB)<input id="evFile" type="file"></label><label class="field wide">Açıklama<textarea id="evDescription"></textarea></label></div><div class="actions"><button class="btn" id="saveEvidence">Kanıtı kaydet</button></div>');
+ const [clauses,processes]=await Promise.all([list('clauses'),list('processes')]);
+ const options=(items)=>items.map(x=>'<option value="'+x.id+'">'+escapeHtml(x.code?x.code+' — '+titleOf(x):titleOf(x))+'</option>').join('');
+ modal('Kanıt dosyası yükle','<div class="formgrid"><label class="field wide">Kanıt başlığı<input id="evTitle" placeholder="Örn. CMDB keşif raporu"></label>'+
+  '<label class="field wide">Dosya (en fazla 600 KB)<input id="evFile" type="file"></label>'+
+  '<label class="field wide">Açıklama<textarea id="evDescription"></textarea></label>'+
+  '<label class="field">İlişkili standart maddeleri<select id="evClauses" multiple class="selectlist">'+options(clauses)+'</select></label>'+
+  '<label class="field">İlişkili süreçler<select id="evProcesses" multiple class="selectlist">'+options(processes)+'</select></label></div>'+
+  '<div class="actions"><button class="btn" id="saveEvidence">Kanıtı kaydet</button></div>');
  $('saveEvidence').onclick=async()=>{
   const file=$('evFile').files?.[0];if(!file||file.size>600000||!file.size)return toast('1–600 KB arasında dosya seçmelisin');
   if(!$('evTitle').value.trim())return toast('Kanıt başlığı gerekli');
   try{
    const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file)});
-   await api('evidence/upload',{method:'POST',body:JSON.stringify({title:$('evTitle').value.trim(),description:$('evDescription').value,source:'manual',content_base64:encoded})});
-   $('dialog').close();toast('Kanıt kaydedildi. İlgilerini API üzerinden veya kontrol sonucuna bağlayarak belirleyebilirsin.');show('evidence');
+   const payload={title:$('evTitle').value.trim(),description:$('evDescription').value,source:'manual',content_base64:encoded,
+     clauses:Array.from($('evClauses').selectedOptions).map(o=>Number(o.value)),
+     processes:Array.from($('evProcesses').selectedOptions).map(o=>Number(o.value))};
+   await api('evidence/upload',{method:'POST',body:JSON.stringify(payload)});
+   $('dialog').close();toast('Kanıt ve ilişkileri kaydedildi');show('evidence');
   }catch(e){toast(e.message)}
  };
 }
