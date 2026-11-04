@@ -11,11 +11,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile
-        run: python -m compileall -q app.py ui.py tests
+        run: python -m compileall -q app.py ui.py identity.py bootstrap.py tests
       - name: Validate browser JavaScript
         run: |
           python -c "import ui; open('/tmp/control-ui.js','w').write(ui.HTML.split('<script>',1)[1].split('</script>',1)[0])"
           node --check /tmp/control-ui.js
+          python -c "import identity; open('/tmp/control-login.js','w').write(identity.LOGIN_HTML.split('<script>',1)[1].split('</script>',1)[0]); open('/tmp/control-change.js','w').write(identity.CHANGE_HTML.split('<script>',1)[1].split('</script>',1)[0])"
+          node --check /tmp/control-login.js
+          node --check /tmp/control-change.js
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Docker build
