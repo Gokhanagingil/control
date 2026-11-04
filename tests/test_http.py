@@ -144,6 +144,24 @@ class HTTPTests(unittest.TestCase):
         status, scope = self.request(f"audits/{audit['audit_id']}/scope")
         self.assertEqual({c["code"] for c in scope["clauses"]}, {"9", "9.1"})
 
+    def test_update_audit_and_close_finding(self):
+        status, audit = self.request("audits", {"name": "Update me"})
+        self.assertEqual(status, 201)
+        status, updated = self.request(f"audits/{audit['id']}", {
+            "status": "completed", "actual_end": "2026-11-04"
+        }, method="PATCH")
+        self.assertEqual((status, updated["status"]), (200, "completed"))
+        _, control = self.request("controls", {"code": "PATCH-CTL", "name": "Check"})
+        _, result = self.request("executions", {"control_id": control["id"], "status": "fail"})
+        status, finding = self.request(f"findings/{result['finding_id']}", {
+            "status": "closed", "description": "Remediated and revalidated"
+        }, method="PATCH")
+        self.assertEqual((status, finding["status"]), (200, "closed"))
+        status, _ = self.request(f"findings/{result['finding_id']}", {
+            "control_id": 9999
+        }, method="PATCH")
+        self.assertEqual(status, 400)
+
     def test_invalid_evidence_and_invalid_control(self):
         code, _ = self.request("evidence/upload", {
             "title": "Bad file", "content_base64": "&&not-valid-base64"
