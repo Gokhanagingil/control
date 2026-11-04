@@ -50,3 +50,7 @@ Madde kodları kamuya açık ISO 20000 içindekiler yapısı ve resmî CIS Contr
 ## Tekrarlanabilirlik
 
 Veri yükleyici `python /app/seed_reference.py --apply` ile çalışır ve `seed_runs` kaydıyla **bir kere** yükleme yapar. Tekrar dağıtımda yeni bulgu veya kanıt üretmez; kullanıcıların oluşturduğu kayıtları silmez veya güncellemez. Her yeni referans sürümü ayrı sürüm anahtarıyla uygulanmalıdır.
+
+## UX izlenebilirliği
+
+`Bulgular` veya `Kontrol Sonuçları` ekranında örnek kayıt açıldığında, kontrolün çalıştırıldığı andaki ilişkili ISO/CIS maddeleri, süreçler, kontrol hedefleri ve kanıtlar aynı detay penceresinde listelenir. Kanıt kütüphanesindeki demo JSON dosyaları `.json` uzantısıyla indirilebilir.
