@@ -373,6 +373,16 @@ class Handler(BaseHTTPRequestHandler):
                             db.execute(f"DELETE FROM {table} WHERE control_id=?", (control_id,))
                             mapping(db, table, "control_id", control_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     return self.respond(200, context(db, control_id))
+                if len(parts) == 4 and parts[:2] == ["api", "evidence"] and parts[3] == "mappings":
+                    evidence_id = int(parts[2])
+                    if not evidence_context(db, evidence_id):
+                        return self.respond(404, {"error": "Evidence not found"})
+                    for target in ("clauses", "processes"):
+                        if target in payload:
+                            db.execute(f"DELETE FROM evidence_{target} WHERE evidence_id=?", (evidence_id,))
+                            mapping(db, f"evidence_{target}", "evidence_id", evidence_id,
+                                    f"{TARGET_COLUMNS[target]}_id", payload[target])
+                    return self.respond(200, evidence_context(db, evidence_id))
                 if len(parts) == 3 and parts[:2] == ["api", "evidence"] and parts[2] == "upload":
                     title = payload.get("title")
                     encoded = payload.get("content_base64")
