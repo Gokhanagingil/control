@@ -89,7 +89,7 @@ class HTTPTests(unittest.TestCase):
         with urlopen(req, timeout=8) as response:
             html = response.read().decode()
             self.assertEqual(response.status, 200)
-            self.assertIn("Control GRC", html)
+            self.assertIn("KS GRC", html)
             self.assertIn("Standart Maddeleri", html)
         check = Request(self.base + "/api/me", headers={"Cookie": new_cookie})
         with urlopen(check, timeout=8) as response:
