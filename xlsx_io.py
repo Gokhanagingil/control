@@ -89,7 +89,8 @@ def make_xlsx(sheets):
         book_parts = []
         rel_parts = []
         for i, name in enumerate(names,1):
-            book_parts.append(f'<sheet name="{xml_escape(name, {"\"": "&quot;"})}" sheetId="{i}" r:id="rId{i}"/>')
+            safe_name = xml_escape(name).replace(chr(34), "&quot;")
+            book_parts.append(f'<sheet name="{safe_name}" sheetId="{i}" r:id="rId{i}"/>')
             rel_parts.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>')
         z.writestr("xl/workbook.xml", ('<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="'+X+'" xmlns:r="'+R+'"><sheets>'+''.join(book_parts)+'</sheets></workbook>').encode())
         z.writestr("xl/_rels/workbook.xml.rels", ('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+''.join(rel_parts)+'</Relationships>').encode())
