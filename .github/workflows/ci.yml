@@ -21,5 +21,10 @@ jobs:
           node --check /tmp/control-change.js
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+      - name: Validate isolated Docker Compose
+        env:
+          CONTROL_API_KEY: a-test-api-key-not-for-deployment
+          CONTROL_UI_USER: test-user
+        run: docker compose -f compose.yaml config --quiet
       - name: Docker build
         run: docker build -t control-grc:ci .
