@@ -1,4 +1,4 @@
-"""Local users and sessions for small Control GRC team. Roles are not enforced."""
+"""Local users and sessions for small KS GRC team. Roles are not enforced."""
 import base64
 import hashlib
 import hmac
@@ -129,17 +129,17 @@ def session_cookie(value, *, secure=True, clear=False):
     return "; ".join(parts)
 
 LOGIN_HTML = r"""<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Control GRC • Giriş</title>
+<title>KS GRC • Giriş</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#eef3f9;color:#1a2940;font:15px system-ui,Segoe UI,Arial;min-height:100vh;display:grid;place-items:center}
 .panel{background:#fff;max-width:430px;width:calc(100% - 30px);padding:35px;border-radius:18px;box-shadow:0 24px 65px #142b4b20}
 h1{margin:0;font-size:30px}h1 span{color:#2563eb}.muted{color:#64748b;line-height:1.6;margin:12px 0 30px}
 label{display:block;font-size:13px;font-weight:650;margin-bottom:18px}input{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit}
 button{background:#2563eb;color:white;border:0;border-radius:9px;padding:13px 18px;width:100%;font:inherit;font-weight:650;cursor:pointer}
 button:disabled{opacity:.6}.msg{color:#b42318;min-height:24px;margin-top:15px;font-size:13px}footer{font-size:12px;color:#94a3b8;margin-top:27px}</style>
-<div class="panel"><h1>Control<span> GRC</span></h1><p class="muted">Denetim, kontrol ve kanıt yönetimi<br>GRC ekibi giriş alanı</p>
+<div class="panel"><h1>KS<span> GRC</span></h1><p class="muted">Denetim, kontrol ve kanıt yönetimi<br>GRC ekibi giriş alanı</p>
 <form id="login"><label>Kullanıcı adı<input name="username" autocomplete="username" required autofocus></label>
 <label>Parola<input type="password" name="password" autocomplete="current-password" required></label>
-<button id="submit" type="submit">Oturum aç</button><div id="message" class="msg" role="alert"></div></form><footer>Control GRC • Yalnızca yetkili personel</footer></div>
+<button id="submit" type="submit">Oturum aç</button><div id="message" class="msg" role="alert"></div></form><footer>KS GRC • Yalnızca yetkili personel</footer></div>
 <script>document.getElementById('login').addEventListener('submit',async e=>{
 e.preventDefault();const button=document.getElementById('submit');button.disabled=true;
 document.getElementById('message').textContent='';const data=Object.fromEntries(new FormData(e.target));
@@ -149,7 +149,7 @@ location.replace(result.must_change_password?'/change-password':'/');
 }catch(err){document.getElementById('message').textContent=err.message;button.disabled=false}
 });</script></html>"""
 
-CHANGE_HTML = r"""<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Control GRC • Parola belirle</title>
+CHANGE_HTML = r"""<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KS GRC • Parola belirle</title>
 <style>body{font:15px system-ui,Segoe UI,Arial;background:#eef3f9;color:#19324f;min-height:100vh;display:grid;place-items:center}
 main{background:white;padding:35px;border-radius:14px;max-width:470px;width:90%;box-shadow:0 20px 50px #142b4b1b}
 input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;margin:7px 0 17px}button{background:#2563eb;color:white;border:0;border-radius:8px;padding:13px;width:100%;cursor:pointer}
