@@ -1,13 +1,13 @@
 KS GRC isolated staging deployment request
 Date: 2026-11-05
-Authorized scope: complete remaining KS GRC implementation, technical acceptance and isolated deployment per owner request.
-Release source: 78569613a15f88468d8f411f74326664efb8933d (PR #7, merged)
-Tested PR head: a93543b3af19e28f24f9c9331825343909ce5ee4
-Verified CI: https://github.com/Gokhanagingil/control/actions/runs/42001413527 — success
-Gates: 33 model/HTTP tests, Chromium synthetic browser acceptance, JS syntax, Compose validation, Docker build.
+Scope: implement and publish the owner's five usability/relationship feedback items.
+Release source: 177e77ec3c29dfc0c30462bdc39e6f9ebc11fc72 (PR #8, merged)
+Tested PR head: 81af72affafd54170863d9dd743fd8c8bbf93c58
+Verified CI: https://github.com/Gokhanagingil/control/actions/runs/42037281244 — SUCCESS
+Verification: 40 unit/API tests; 27 real Chromium checkpoints with synthetic data and zero page errors; JavaScript syntax; Compose validation; Docker build. Verification artifact contains report and screenshots.
+Changes: entire row opens record; misleading Open button removed; mouse/keyboard resizable detail panel with remembered width; objective control/derived clause/process links; audit's own findings separate from other open findings; interactive exportable GRC relationship map.
 Target: /opt/control-grc; Docker Compose project control-grc only.
-Before upgrade: coherent private SQLite/evidence backup inside own volume.
-After upgrade: SQLite integrity and foreign keys, active bootstrap account, new execution receipt schema, authenticated API/health, other container lifecycle comparison and external HTTPS login-page check.
-No NILES configuration, database or container mutation authorized.
-No passwords/API keys printed or reset.
-Live owner's MCP integration with ServiceNow/Dynamics and human acceptance are not represented as completed by this deployment.
+Before upgrade: private coherent SQLite/evidence backup.
+After upgrade: active bootstrap account, SQLite integrity/foreign keys, authenticated API/health, unchanged other container lifecycles and external HTTPS login page.
+Do not reset or change existing account passwords. No NILES configuration, database or container mutation authorized.
+No new database schema required by this UX package. Human user acceptance remains separate from synthetic automated tests.
