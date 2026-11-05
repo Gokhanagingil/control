@@ -2,6 +2,8 @@ name: Control GRC CI
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -11,7 +13,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile
-        run: python -m compileall -q app.py ui.py ui_v2.py identity.py bootstrap.py seed_reference.py grc_plus.py grc_excel.py xlsx_io.py tests
+        run: python -m compileall -q app.py ui.py ui_v2.py identity.py bootstrap.py seed_reference.py seed_itil.py grc_plus.py grc_excel.py xlsx_io.py tests
       - name: Validate browser JavaScript
         run: |
           python -c "import ui; open('/tmp/control-ui.js','w').write(ui.HTML.split('<script>',1)[1].split('</script>',1)[0])"
@@ -21,7 +23,10 @@ jobs:
           node --check /tmp/control-login.js
           node --check /tmp/control-change.js
       - name: Unit tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          set -o pipefail
+          mkdir -p verification
+          python -m unittest discover -s tests -v 2>&1 | tee verification/regression.log
       - name: Validate isolated Docker Compose
         env:
           CONTROL_API_KEY: a-test-api-key-not-for-deployment
@@ -29,3 +34,15 @@ jobs:
         run: docker compose -f compose.yaml config --quiet
       - name: Docker build
         run: docker build -t control-grc:ci .
+      - name: Package tested source (tracked files only, no credentials)
+        if: always()
+        run: |
+          mkdir -p verification
+          git archive --format=zip HEAD -o verification/source.zip
+          git rev-parse HEAD > verification/commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ github.run_id }}
+          path: verification/
+          retention-days: 14
