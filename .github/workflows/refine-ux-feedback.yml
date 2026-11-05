@@ -1,0 +1,75 @@
+name: Verify split-view feedback refinement
+on:
+  push:
+    branches: [feature/ux-relations-20261105]
+    paths: [.github/workflows/refine-ux-feedback.yml]
+permissions:
+  contents: write
+concurrency:
+  group: control-grc-ux-feedback
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed test timing and SVG portability fixes
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          expected={'ksgrc.js':'b6ef76142facec3e975d5800b0c516293ddac825','scripts/browser_smoke.py':'ae8a8f49851230cff1672f3999212b7e4ab65f5c'}
+          for name,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',name],text=True).strip()==sha,name+' changed; stop for review'
+          p=Path('scripts/browser_smoke.py');s=p.read_text()
+          s=s.replace("    before=page.locator('#detail').bounding_box()['width']", "    grip.hover()  # Wait for opening transition to settle before using coordinates.\n    before=page.locator('#detail').bounding_box()['width']")
+          s=s.replace('    page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-160,y,steps=12);page.mouse.up()',"    page.mouse.move(x,y);page.mouse.down()\n    expect(page.locator('body')).to_have_class('resizing-detail')\n    page.mouse.move(x-160,y,steps=12);page.mouse.up()")
+          s=s.replace("out/'06-resized-split-view.png'),full_page=True)","out/'06-resized-split-view.png'),full_page=False)")
+          p.write_text(s)
+          p=Path('ksgrc.js');s=p.read_text()
+          old=next(x for x in s.splitlines() if ' const label=(x,y,text)' in x)
+          new=''' const label=(x,y,text)=>'<g><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#f8fbff" stroke="#f8fbff" stroke-width="6" stroke-linejoin="round">'+esc(text)+'</text><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#3c5d7a">'+esc(text)+'</text></g>';'''
+          s=s.replace(old,new);p.write_text(s)
+          PY
+          node --check ksgrc.js
+          mkdir -p verification
+          python -m unittest discover -s tests -v 2>&1 | tee verification/regression.log
+      - name: Preserve reviewed fixes and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ksgrc.js scripts/browser_smoke.py
+          git rm .github/workflows/refine-ux-feedback.yml
+          git diff --cached --check
+          git commit -m 'fix: wait for settled splitter geometry and keep exported SVG labels readable'
+          git push origin HEAD:feature/ux-relations-20261105
+      - name: Install browser tools
+        run: |
+          pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Validate actual browser behavior
+        run: |
+          set -o pipefail
+          python scripts/browser_smoke.py 2>&1 | tee verification/browser.log
+      - name: Validate application image
+        run: |
+          CONTROL_API_KEY=test-only-key CONTROL_UI_USER=test docker compose config --quiet
+          docker build -t control-grc:ux-test .
+      - name: Preserve verification artifacts
+        if: always()
+        run: |
+          mkdir -p verification
+          git archive --format=zip HEAD -o verification/source.zip
+          git rev-parse HEAD > verification/commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux-refinement-${{ github.run_id }}
+          path: verification/
+          retention-days: 14
