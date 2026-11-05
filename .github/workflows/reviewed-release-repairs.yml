@@ -1,0 +1,57 @@
+name: Reviewed release repairs and browser acceptance
+on:
+  push:
+    branches: [feature/ks-grc-upgrade-20261104]
+    paths: [.release/apply_existing.py]
+permissions:
+  contents: write
+concurrency:
+  group: control-reviewed-repair
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ks-grc-upgrade-20261104
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply exact reviewed repairs to feature branch only
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feature/ks-grc-upgrade-20261104
+          python .release/apply_existing.py
+          node --check ksgrc.js
+          python -m compileall -q .
+          mkdir -p verification
+          python -m unittest discover -s tests -v 2>&1 | tee verification/regression.log
+          git diff --stat
+      - name: Persist tested repairs without force-pushing
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Dockerfile app.py grc_plus.py ksgrc.js seed_reference.py tests/test_http.py
+          git commit -m 'fix: verified execution idempotency, evidence history and dashboard repairs'
+          git push origin HEAD:feature/ks-grc-upgrade-20261104
+      - name: Install isolated browser testing tools
+        run: |
+          pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Exercise real browser flows using synthetic data only
+        run: python scripts/browser_smoke.py
+      - name: Retain verification evidence
+        if: always()
+        run: |
+          mkdir -p verification
+          git archive --format=zip HEAD -o verification/source.zip
+          git rev-parse HEAD > verification/commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-verification-${{ github.run_id }}
+          path: verification/
+          retention-days: 14
