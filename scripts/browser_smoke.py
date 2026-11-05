@@ -66,11 +66,17 @@ def exercise(page,out,checks):
     page.locator('#runStatus').select_option('fail')
     page.locator('#runDetails').fill('UAT: controlled failure, not live source data')
     page.locator('input[data-link="runEvidence"]').first.check()
-    page.get_by_role('button',name='Sonucu kaydet',exact=True).click()
+    with page.expect_response(lambda r: r.url.endswith('/api/executions') and r.request.method=='POST') as completed:
+        page.get_by_role('button',name='Sonucu kaydet',exact=True).click()
+    response=completed.value
+    assert response.status==201,response.text()
+    saved=response.json();assert saved['finding_id'] is not None
     expect(page.locator('#pageTitle')).to_have_text('Kontrol Sonuçları')
-    expect(page.locator('#detailTitle')).to_contain_text('Kontrol')
+    expect(page.locator('#detailTitle')).to_have_text('Kontrol sonucu • #'+str(saved['execution_id']))
     with app.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM findings WHERE description LIKE 'UAT: controlled%'").fetchone()[0]==1
+        finding=db.execute('SELECT description FROM findings WHERE id=?',(saved['finding_id'],)).fetchone()
+        assert finding and finding['description']=='UAT: controlled failure, not live source data'
+        assert db.execute('SELECT COUNT(*) FROM findings WHERE execution_id=?',(saved['execution_id'],)).fetchone()[0]==1
     checks.append('manual_fail_creates_finding_with_evidence')
     page.locator('[data-nav="compliance"]').click()
     expect(page.locator('#content')).to_contain_text('ön')
