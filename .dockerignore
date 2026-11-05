@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+.first-login
+*.db
+*.db-*
+__pycache__
+verification
+backups
+evidence-files
+tests
+scripts
