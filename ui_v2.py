@@ -94,9 +94,10 @@ box-shadow:-10px 0 30px #1a365314;transform:translateX(105%);transition:transfor
 #toast{position:fixed;z-index:100;bottom:22px;left:50%;transform:translateX(-50%);background:#1d395c;color:#fff;border-radius:11px;padding:12px 18px;font-size:13px;max-width:min(650px,90vw);box-shadow:0 15px 50px #13284f55;display:none}
 .spin{animation:spinning 1s linear infinite;display:inline-block}@keyframes spinning{to{transform:rotate(360deg)}}
 @media(max-width:1150px){#main.details-open{padding-right:calc(min(540px,50vw) + 20px)}#detail{width:min(540px,50vw)}.cards{grid-template-columns:repeat(2,1fr)}.kpirow{grid-template-columns:1fr}}
-@media(max-width:800px){#sidebar{position:static;width:100%;padding:13px;max-height:150px}.brand{margin:0 8px 8px;font-size:19px}.brand small{display:none}
-#nav{display:flex;gap:6px;overflow:auto;flex-wrap:nowrap}.nav-title{display:none}.nav-button{white-space:nowrap;font-size:11px;padding:9px 10px;width:auto}
-.nav-bottom{display:none}#main,#main.details-open{margin-left:0;padding:18px}#detail{width:min(600px,100vw)}.arch-cards{grid-template-columns:1fr}}
+@media(max-width:800px){#sidebar{position:static;width:100%;padding:13px;max-height:none}.brand{margin:0 8px 8px;font-size:19px}.brand small{display:none}
+#nav{display:flex;gap:6px;overflow:auto;flex-wrap:nowrap;flex:none}.nav-title{display:none}.nav-button{white-space:nowrap;font-size:11px;padding:9px 10px;width:auto;flex-shrink:0}
+.nav-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 3px 0;margin-top:7px}#identity{padding:4px;min-width:0;overflow-wrap:anywhere}#signout{width:auto;flex-shrink:0;font-size:11px;padding:8px 10px}
+#main,#main.details-open{margin-left:0;padding:18px}#detail{width:min(600px,100vw)}.arch-cards{grid-template-columns:1fr}}
 @media(max-width:560px){.cards{grid-template-columns:repeat(2,1fr)}.metric{padding:14px}.metric-number{font-size:23px}
 #topline{display:block}#topActions{justify-content:flex-start;margin-top:14px}
 .formgrid,.audit-grid{grid-template-columns:1fr}.detail-head{padding:17px}.detail-content{padding:18px}.detail-footer{padding:10px 18px}}
