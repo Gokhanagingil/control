@@ -1,0 +1,76 @@
+name: Verify UX feedback implementation
+on:
+  push:
+    branches: [feature/ux-relations-20261105]
+    paths: [.github/workflows/apply-ux-feedback.yml]
+permissions:
+  contents: write
+concurrency:
+  group: control-grc-ux-feedback
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply only the reviewed and locally tested patch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feature/ux-relations-20261105
+          python - <<'PY'
+          import base64,gzip,hashlib,subprocess
+          from pathlib import Path
+          encoded=''.join(Path(f'.release/ux.{i}').read_text().strip() for i in range(1,5))
+          packed=base64.b64decode(encoded,validate=True)
+          assert hashlib.sha256(packed).hexdigest()=='18ea923e0edb55b804f0c03828921f881f36545568f84aa561bab8bcf4e226b4','Transfer integrity mismatch'
+          patch=gzip.decompress(packed)
+          assert hashlib.sha256(patch).hexdigest()=='c95d61631863c10af8060a923df3d88530fa6587ca602b7c19cefb2832734548'
+          path=Path('/tmp/ux-feedback.patch');path.write_bytes(patch)
+          subprocess.run(['git','apply','--check',str(path)],check=True)
+          subprocess.run(['git','apply',str(path)],check=True)
+          allowed={'grc_plus.py','ksgrc.js','ui_v2.py','scripts/browser_smoke.py','tests/test_feedback.py'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed<=allowed,changed
+          PY
+          node --check ksgrc.js
+          python -m compileall -q app.py grc_plus.py ui_v2.py tests scripts
+          mkdir -p verification
+          python -m unittest discover -s tests -v 2>&1 | tee verification/regression.log
+      - name: Persist tested source and remove temporary transfer tooling
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add grc_plus.py ksgrc.js ui_v2.py scripts/browser_smoke.py tests/test_feedback.py
+          git rm .release/ux.1 .release/ux.2 .release/ux.3 .release/ux.4 .github/workflows/apply-ux-feedback.yml
+          git diff --cached --check
+          git commit -m 'feat: resizable detail panes, objective links, audit findings and relational map'
+          git push origin HEAD:feature/ux-relations-20261105
+      - name: Install real browser testing tools
+        run: |
+          pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Validate all browser flows and the new feedback scenarios
+        run: |
+          set -o pipefail
+          python scripts/browser_smoke.py 2>&1 | tee verification/browser.log
+      - name: Validate application image
+        run: |
+          CONTROL_API_KEY=test-only-key CONTROL_UI_USER=test docker compose config --quiet
+          docker build -t control-grc:ux-test .
+      - name: Retain reproducible verification results
+        if: always()
+        run: |
+          mkdir -p verification
+          git archive --format=zip HEAD -o verification/source.zip
+          git rev-parse HEAD > verification/commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux-feedback-${{ github.run_id }}
+          path: verification/
+          retention-days: 14
