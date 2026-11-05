@@ -321,6 +321,16 @@ def _write_file(db, eid, filename, binary):
     # Legacy evidence file may exist outside the version index.
     legacy=folder/str(eid)
     if version==1 and legacy.exists():
+        prior=db.execute("SELECT * FROM evidence WHERE id=?",(eid,)).fetchone()
+        legacy_bytes=legacy.read_bytes()
+        digest=hashlib.sha256(legacy_bytes).hexdigest()
+        if not prior["hash_sha256"] or digest!=prior["hash_sha256"]:
+            raise ValueError("Eski kanıtın bütünlük doğrulaması başarısız")
+        db.execute("""INSERT INTO evidence_files
+          (evidence_id,version,storage_key,file_name,file_size,mime_type,sha256,created_at)
+          VALUES(?,?,?,?,?,?,?,?)""",(eid,1,str(eid),prior["file_name"] or f"kanit-{eid}.bin",
+          len(legacy_bytes),prior["mime_type"] or "application/octet-stream",digest,
+          prior["collected_at"] or now()))
         version=2
     name=f"{eid}-v{version}" if version>1 else str(eid)
     location=folder/name
@@ -362,8 +372,8 @@ def save_file(db,payload,eid=None):
         eid=app.insert(db,"evidence",fields)
     elif not db.execute("SELECT id FROM evidence WHERE id=?",(eid,)).fetchone():
         raise ValueError("Kanıt kaydı bulunamadı")
-    details=_write_file(db,eid,filename,binary)
     mappings(db,eid,payload,replace=False)
+    details=_write_file(db,eid,filename,binary)
     return {"id":eid, **details}
 
 

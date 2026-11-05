@@ -2,6 +2,7 @@
 import json
 import ui
 import ui_v2
+import execution_service
 import grc_plus
 import re
 import identity
@@ -61,8 +62,16 @@ ALLOWED_NATURE = {"preventive", "detective", "corrective", "directive", "compens
 LABELS = {"standards": "Standartlar", "clauses": "Maddeler", "processes": "Süreçler", "objectives": "Kontrol Hedefleri", "controls": "Kontroller", "audits": "Denetimler", "evidence": "Kanıtlar", "executions": "Kontrol Sonuçları", "findings": "Bulgular"}
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 def connect():
-    db = sqlite3.connect(DB, timeout=15)
+    db = sqlite3.connect(DB, timeout=15, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=15000")
@@ -118,6 +127,7 @@ def initialize():
             db.execute("INSERT OR IGNORE INTO roles(code,name,description) VALUES (?,?,?)", (code,name,description))
         identity.setup(db)
         grc_plus.setup(db)
+        execution_service.setup(db)
 
 
 def utcnow():
@@ -264,7 +274,7 @@ def execution_context(db, execution_id):
     result["evidence"] = rows(db, """SELECT e.* FROM evidence e
         JOIN execution_evidence m ON m.evidence_id=e.id
         WHERE m.execution_id=?""", (execution_id,))
-    return result
+    return execution_service.enrich(db,result)
 
 
 def finding_context(db, finding_id):
@@ -276,7 +286,7 @@ def finding_context(db, finding_id):
     return finding
 
 
-def execute(db, data):
+def _execute_base(db, data):
     control_id = data.get("control_id")
     if not isinstance(control_id, int) or not context(db, control_id):
         raise ValueError("Valid control_id required")
@@ -299,6 +309,10 @@ def execute(db, data):
             "severity": data.get("severity", "medium")
         })
     return {"execution_id": execution_id, "finding_id": finding_id}
+
+
+def execute(db, data):
+    return execution_service.record(db,data,_execute_base)
 
 
 STYLE = """
@@ -711,7 +725,14 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
                     if table == "executions":
-                        return self.committed_response(db, 201, execute(db, payload))
+                        if getattr(self,"auth_type",None)=="api_key":
+                            control=context(db,payload.get("control_id"))
+                            if not control or control["execution_mode"]!="automatic" or payload.get("source")!="mcp":
+                                return self.respond(403,{"error":"MCP yalnızca otomatik kontrole MCP kaynaklı sonuç yazabilir"})
+                        result=execute(db,payload)
+                        if not result.get("replayed"):
+                            grc_plus.log(db,self,"EXECUTE","controls",payload.get("control_id"))
+                        return self.committed_response(db,200 if result.get("replayed") else 201,result)
                     record_id = insert(db, table, payload)
                     if table == "evidence":
                         for target in ("clauses", "processes"):
@@ -721,6 +742,8 @@ class Handler(BaseHTTPRequestHandler):
                         mapping(db, "audit_clauses", "audit_id", record_id, "clause_id", payload["clause_ids"])
                     return self.committed_response(db, 201, {"id": record_id})
             self.respond(404, {"error": "Not found"})
+        except execution_service.Conflict as exc:
+            self.respond(409, {"error":str(exc)})
         except (ValueError, KeyError, sqlite3.Error, json.JSONDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
 

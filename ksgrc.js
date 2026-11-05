@@ -72,7 +72,7 @@ function drawer(title,html,buttons=[]){
  $('detailFooter').innerHTML='';
  for(const [name,callback,variant] of buttons){
   const b=document.createElement('button');b.type='button';b.className='btn '+(variant||'');
-  b.textContent=name;b.onclick=callback;$('detailFooter').append(b)
+  b.textContent=name;b.onclick=async()=>{if(b.disabled)return;b.disabled=true;try{await callback()}catch(e){toast(e.message,false)}finally{b.disabled=false}};$('detailFooter').append(b)
  }
  $('detail').classList.add('open');$('main').classList.add('details-open');
  $('detail').setAttribute('aria-hidden','false');STATE.detail={title};
@@ -97,11 +97,11 @@ async function navigate(view){
  view==='admin'?'Kullanıcı, veri ve sistem yönetimi':'Güvenilir kayıtlar ve izlenebilir ilişkiler';
  actions([]);$('content').innerHTML='<div class="panel">Veriler hazırlanıyor…</div>';
  try{
-  if(view==='home')return home();
-  if(view==='compliance')return compliancePage();
-  if(view==='architecture')return architecturePage();
-  if(view==='admin')return adminPage();
-  return renderTable(view);
+  if(view==='home')return await home();
+  if(view==='compliance')return await compliancePage();
+  if(view==='architecture')return await architecturePage();
+  if(view==='admin')return await adminPage();
+  return await renderTable(view);
  }catch(e){$('content').innerHTML='<div class="notice warn">'+esc(e.message)+'</div>'}
 }
 function tableHTML(table,source){
@@ -204,7 +204,7 @@ async function createForm(table,defaults={}){
  '<div class="formgrid">'+(await Promise.all(names.map(key=>fieldInput(table,key,defaults[key])))).join('')+'</div>';
  drawer('Yeni '+LABELS[table]+' kaydı',html,[['Kaydet',async()=>{
   try{const result=await api(table,{method:'POST',body:JSON.stringify(formValues(table,names))});
-   invalidate(table);toast('Kayıt oluşturuldu');await renderTable(table);await openRecord(table,result.id)
+   invalidate(table);toast('Kayıt oluşturuldu');await navigate(table);await openRecord(table,result.id)
   }catch(e){toast(e.message,false)}
  }],['Vazgeç',closeDetail,'secondary']]);
  }catch(e){toast(e.message,false)}
@@ -417,6 +417,7 @@ async function evidenceForm(existingId=null){
  bindChecks();
 }
 async function executionForm(preselect=null){
+ const requestId=crypto.randomUUID();
  const [controls,audits,evidence]=await Promise.all(['controls','audits','evidence'].map(x=>list(x)));
  const results=STATE.meta.choices?.executions?.status||{pass:'Başarılı',fail:'Başarısız',inconclusive:'Belirsiz',not_applicable:'Uygulanamaz'};
  const html='<div class="formgrid"><label class="field">Kontrol<select id="runControl">'+controls.map(x=>
@@ -429,7 +430,7 @@ async function executionForm(preselect=null){
  '<label class="field wide">Gözlem ve gerekçe<textarea id="runDetails" placeholder="Kriter, örneklem ve kontrol sonucunu kaydet…"></textarea></label></div>'+
  checks('runEvidence','Kullanılan kanıtlar',evidence,[],x=>x.title);
  drawer('Kontrol sonucu oluştur',html,[['Sonucu kaydet',async()=>{
-  try{const payload={control_id:Number($('runControl').value),status:$('runStatus').value,
+  try{const payload={idempotency_key:requestId,control_id:Number($('runControl').value),status:$('runStatus').value,
    source:$('runSource').value,details:$('runDetails').value,evidence_ids:selected('runEvidence')};
    if($('runAudit').value)payload.audit_id=Number($('runAudit').value);
    const saved=await api('executions',{method:'POST',body:JSON.stringify(payload)});
@@ -458,7 +459,7 @@ async function auditWizard(selectedStandard=null){
 }
 
 async function home(){
- const [controls,audits,findings,evidence,risks,actions,standards,processes]=await Promise.all([
+ const [controls,audits,findings,evidence,risks,correctiveActions,standards,processes]=await Promise.all([
  'controls','audits','findings','evidence','risks','actions','standards','processes'].map(x=>list(x)));
  const metrics=[
   ['Kontrol',controls.length,'controls','Kontrolleri aç'],
@@ -478,7 +479,7 @@ async function home(){
  '<button class="btn small" data-go="compliance">Uyumluluk panosuna git</button></div></div></div>'+
  (controls.some(c=>c.code?.startsWith('KS-DEMO-'))?'<div class="notice warn"><b>Örnek kayıt uyarısı:</b> KS-DEMO kayıtlarındaki ölçümler, bulgular ve kanıt dosyaları simüledir. Canlı sistemden elde edilmiş değildir.</div>':'')+
  '<div class="panel"><h2>Güncel takip alanları</h2><div class="cards">'+[
-  ['Risk kaydı',risks.length,'risks'],['Açık düzeltici faaliyet',actions.filter(a=>a.status!=='completed').length,'actions'],
+  ['Risk kaydı',risks.length,'risks'],['Açık düzeltici faaliyet',correctiveActions.filter(a=>a.status!=='completed').length,'actions'],
   ['Otomatik kontrol',controls.filter(c=>c.execution_mode==='automatic').length,'controls'],
   ['Manuel kontrol',controls.filter(c=>c.execution_mode==='manual').length,'controls']
  ].map(([name,n,route])=>

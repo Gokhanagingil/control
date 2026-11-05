@@ -207,7 +207,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(code,403)
         code, _ = self.request("admin/summary",key=True)
         self.assertEqual(code,403)
-        created=controls[0] if controls else None
+        created=next((c for c in controls if c["execution_mode"]=="automatic"),None)
         if created:
             code, result=self.request("executions",{
                 "control_id":created["id"],"status":"pass","source":"mcp"

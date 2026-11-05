@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY app.py ui.py ui_v2.py ksgrc.js identity.py bootstrap.py seed_reference.py grc_plus.py grc_excel.py xlsx_io.py /app/
+COPY app.py ui.py ui_v2.py ksgrc.js identity.py bootstrap.py backup.py seed_reference.py seed_itil.py execution_service.py grc_plus.py grc_excel.py xlsx_io.py /app/
 COPY seed/ /app/seed/
 RUN useradd --system --uid 10001 --create-home control && mkdir -p /data && chown control:control /data
 USER control
