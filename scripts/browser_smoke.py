@@ -122,8 +122,9 @@ def exercise_feedback(page,out,checks):
     expect(grip).to_have_attribute('aria-valuenow',str(round(after)))
     grip.focus();grip.press('Home');expect(grip).to_have_attribute('aria-valuenow','360')
     grip.press('ArrowLeft');expect(grip).to_have_attribute('aria-valuenow','384')
-    grip.press('End');max_width=page.locator('#detail').bounding_box()['width']
-    assert max_width<=806,max_width
+    grip.press('End');expect(grip).to_have_attribute('aria-valuenow','806')
+    max_width=page.locator('#detail').bounding_box()['width']
+    assert abs(max_width-806)<1,max_width  # Browser geometry may include subpixel rounding.
     grip.press('Enter');expect(grip).to_have_attribute('aria-valuenow','540')
     checks.append('whole_row_keyboard_resize_mouse_limits_and_persistence')
     with app.connect() as db:
