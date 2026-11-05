@@ -1,6 +1,10 @@
 """KS GRC MVP: single-file, dependency-free web app and JSON API."""
 import json
 import ui
+import ui_v2
+import execution_service
+import grc_plus
+import re
 import identity
 import threading
 import time
@@ -58,8 +62,16 @@ ALLOWED_NATURE = {"preventive", "detective", "corrective", "directive", "compens
 LABELS = {"standards": "Standartlar", "clauses": "Maddeler", "processes": "Süreçler", "objectives": "Kontrol Hedefleri", "controls": "Kontroller", "audits": "Denetimler", "evidence": "Kanıtlar", "executions": "Kontrol Sonuçları", "findings": "Bulgular"}
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 def connect():
-    db = sqlite3.connect(DB, timeout=15)
+    db = sqlite3.connect(DB, timeout=15, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=15000")
@@ -114,6 +126,8 @@ def initialize():
         ):
             db.execute("INSERT OR IGNORE INTO roles(code,name,description) VALUES (?,?,?)", (code,name,description))
         identity.setup(db)
+        grc_plus.setup(db)
+        execution_service.setup(db)
 
 
 def utcnow():
@@ -125,6 +139,7 @@ def insert(db, table, payload):
     data = {k: v for k, v in payload.items() if k in allowed}
     if not data:
         raise ValueError("No valid fields provided")
+    grc_plus.validate_record(table, data)
     if table == "controls":
         if data.get("execution_mode", "manual") not in ALLOWED_MODES:
             raise ValueError("Invalid execution_mode")
@@ -259,7 +274,7 @@ def execution_context(db, execution_id):
     result["evidence"] = rows(db, """SELECT e.* FROM evidence e
         JOIN execution_evidence m ON m.evidence_id=e.id
         WHERE m.execution_id=?""", (execution_id,))
-    return result
+    return execution_service.enrich(db,result)
 
 
 def finding_context(db, finding_id):
@@ -271,7 +286,7 @@ def finding_context(db, finding_id):
     return finding
 
 
-def execute(db, data):
+def _execute_base(db, data):
     control_id = data.get("control_id")
     if not isinstance(control_id, int) or not context(db, control_id):
         raise ValueError("Valid control_id required")
@@ -294,6 +309,10 @@ def execute(db, data):
             "severity": data.get("severity", "medium")
         })
     return {"execution_id": execution_id, "finding_id": finding_id}
+
+
+def execute(db, data):
+    return execution_service.record(db,data,_execute_base)
 
 
 STYLE = """
@@ -354,6 +373,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if content_type.startswith("text/html"):
+            scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
+            hashes = ["'sha256-"+base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode()+"'" for t in scripts]
+            policy = ("default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
+                      "connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; "
+                      "script-src 'self' "+(" ".join(hashes) if hashes else "")+"; object-src 'none'")
+            self.send_header("Content-Security-Policy", policy)
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -380,6 +409,20 @@ class Handler(BaseHTTPRequestHandler):
         # MCP can use an independent API key. Browser users need an active session.
         api_key = self.headers.get("X-API-Key", "")
         if KEY and api_key and hmac.compare_digest(api_key, KEY):
+            # Least-privilege: MCP reads GRC catalogs/evidence and records check results.
+            # It cannot change control definitions, export all data, or manage people.
+            route = urlparse(self.path).path
+            parts = route.strip("/").split("/")
+            can_read = (self.command == "GET" and
+                route.startswith("/api/") and not
+                (route.startswith("/api/admin") or route.startswith("/api/excel")))
+            can_write = (self.command == "POST" and
+                (route == "/api/executions" or route == "/api/evidence" or
+                 route == "/api/evidence/upload" or
+                 (len(parts) == 4 and parts[:2] == ["api", "evidence"] and parts[3] == "versions")))
+            if not (can_read or can_write):
+                self.respond(403, {"error": "MCP anahtarı bu işleme yetkili değil"})
+                return False
             self.auth_type = "api_key"
             return True
         user = self.session_user()
@@ -410,7 +453,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         origin = self.headers.get("Origin")
         host = self.headers.get("Host")
-        if not origin or not host or urlparse(origin).netloc != host:
+        if not origin or not host or urlparse(origin).netloc != host or (COOKIE_SECURE and urlparse(origin).scheme != 'https'):
             self.respond(403, {"error": "Güvenlik doğrulaması başarısız"})
             return False
         return True
@@ -505,6 +548,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
         if path_only == "/api/me":
             return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
+        if path_only == "/ksgrc.js":
+            return self.respond(200, (Path(__file__).parent / "ksgrc.js").read_text("utf-8"),
+                                "application/javascript; charset=utf-8")
+        if grc_plus.get(self):
+            return
         path = urlparse(self.path)
         parts = path.path.strip("/").split("/")
         try:
@@ -550,13 +598,15 @@ class Handler(BaseHTTPRequestHandler):
                     table = parse_qs(path.query).get("view", ["controls"])[0]
                     if table not in TABLES:
                         table = "controls"
-                    return self.respond(200, ui.page_html(), "text/html; charset=utf-8")
+                    return self.respond(200, ui_v2.page_html(), "text/html; charset=utf-8")
             self.respond(404, {"error": "Not found"})
         except (ValueError, sqlite3.Error) as exc:
             self.respond(400, {"error": str(exc)})
 
     def do_PATCH(self):
         if not self.authorized() or not self.same_origin():
+            return
+        if grc_plus.patch(self):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -574,14 +624,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Unsupported fields in update")
             if not payload:
                 raise ValueError("No fields to update")
+            grc_plus.validate_record(table, payload)
             if table == "controls":
                 if "execution_mode" in payload and payload["execution_mode"] not in ALLOWED_MODES:
                     raise ValueError("Invalid execution_mode")
                 if "nature" in payload and payload["nature"] not in ALLOWED_NATURE:
                     raise ValueError("Invalid nature")
-            if table == "findings" and "status" in payload and payload["status"] not in {"open", "in_progress", "closed"}:
+            if table == "findings" and "status" in payload and payload["status"] not in {"open", "in_progress", "closed", "accepted"}:
                 raise ValueError("Invalid finding status")
-            if table == "audits" and "status" in payload and payload["status"] not in {"planned", "in_progress", "completed", "closed"}:
+            if table == "audits" and "status" in payload and payload["status"] not in {"planned", "in_progress", "completed", "closed", "cancelled"}:
                 raise ValueError("Invalid audit status")
             with connect() as db:
                 setters = ", ".join(f"{field}=?" for field in payload)
@@ -602,6 +653,8 @@ class Handler(BaseHTTPRequestHandler):
         if path_only == "/api/logout":
             return self.handle_logout()
         if not self.authorized() or not self.same_origin():
+            return
+        if grc_plus.post(self):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -672,7 +725,14 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
                     if table == "executions":
-                        return self.committed_response(db, 201, execute(db, payload))
+                        if getattr(self,"auth_type",None)=="api_key":
+                            control=context(db,payload.get("control_id"))
+                            if not control or control["execution_mode"]!="automatic" or payload.get("source")!="mcp":
+                                return self.respond(403,{"error":"MCP yalnızca otomatik kontrole MCP kaynaklı sonuç yazabilir"})
+                        result=execute(db,payload)
+                        if not result.get("replayed"):
+                            grc_plus.log(db,self,"EXECUTE","controls",payload.get("control_id"))
+                        return self.committed_response(db,200 if result.get("replayed") else 201,result)
                     record_id = insert(db, table, payload)
                     if table == "evidence":
                         for target in ("clauses", "processes"):
@@ -682,6 +742,8 @@ class Handler(BaseHTTPRequestHandler):
                         mapping(db, "audit_clauses", "audit_id", record_id, "clause_id", payload["clause_ids"])
                     return self.committed_response(db, 201, {"id": record_id})
             self.respond(404, {"error": "Not found"})
+        except execution_service.Conflict as exc:
+            self.respond(409, {"error":str(exc)})
         except (ValueError, KeyError, sqlite3.Error, json.JSONDecodeError) as exc:
             self.respond(400, {"error": str(exc)})
 

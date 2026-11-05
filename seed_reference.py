@@ -165,6 +165,20 @@ def seed():
                         [process_ids[x] for x in control["processes"]])
             evidence_files.append((evidence_id, blob, digest))
 
+        # Evidence files are synthetic JSON artifacts, not references to non-existent screenshots.
+        folder = Path(app.EVIDENCE_DIR)
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for evidence_id, blob, digest in evidence_files:
+            path = folder / str(evidence_id)
+            if path.exists():
+                if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                    raise ValueError("Existing evidence file differs; refusing overwrite: " + str(path))
+            else:
+                with path.open("xb") as out:
+                    out.write(blob)
+                path.chmod(0o600)
+
+
         # Demonstrate that a single evidence item can substantiate several controls.
         shared = {"KS-DEMO-CTL-021": ["KS-DEMO-CTL-001"],
                   "KS-DEMO-CTL-022": ["KS-DEMO-CTL-001"],
@@ -205,19 +219,6 @@ def seed():
                 counters["executions"] += 1
                 if result["finding_id"]:
                     counters["findings"] += 1
-
-        # Evidence files are synthetic JSON artifacts, not references to non-existent screenshots.
-        folder = Path(app.EVIDENCE_DIR)
-        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-        for evidence_id, blob, digest in evidence_files:
-            path = folder / str(evidence_id)
-            if path.exists():
-                if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-                    raise ValueError("Existing evidence file differs; refusing overwrite: " + str(path))
-            else:
-                with path.open("xb") as out:
-                    out.write(blob)
-                path.chmod(0o600)
 
         db.execute("INSERT INTO seed_runs(key,applied_at,summary_json) VALUES(?,?,?)",
                    (SEED_KEY, app.utcnow(), json.dumps(counters, ensure_ascii=False)))

@@ -1,77 +1,53 @@
-# KS GRC — MCP contract and acceptance checklist
+# KS GRC — MCP uygulaması için güncel API sözleşmesi
 
-The existing MCP platform is the orchestration layer. KS GRC never calls ServiceNow or Dynamics directly.
+## Sınır ve kimlik
 
-## API access
+KS GRC bir REST API sağlar; doğrudan ServiceNow/Dynamics sorgulamaz ve içinde bir MCP sunucusu veya zamanlayıcı çalıştırmaz. Mevcut harici MCP uygulaması API'yi araç/adaptör olarak kullanır, kontrolleri planlar, kaynakları sorgular ve kanıt/sonuç yazar. Gerçek harici uygulamanın adresi ve bağlantısı bu repository'de yapılandırılmamıştır.
 
-- Use \`X-API-Key: <CONTROL_API_KEY>\` for machine-to-machine access.
-- Run the service on a trusted network. Initial Docker binding is **127.0.0.1:18080** on the host.
-- Browser HTTP Basic authentication is a **test-only** measure. Reach the UI through an SSH tunnel or TLS-protected reverse proxy; **never** expose Basic auth over plain public HTTP.
-- All dates are ISO 8601 or YYYY-MM-DD, depending on field; backend does not yet enforce date formats.
-- IDs are database-generated integers. Treat mappings as many-to-many.
-- This version has no automated scheduler. The MCP application schedules and invokes controls.
+HTTPS üzerinden `X-API-Key: <CONTROL_API_KEY>` kullanın. Anahtarı istemci loglarına, URL'ye veya tarayıcı koduna koymayın. Makine anahtarı kullanıcı yönetimi, Excel dışa aktarımı, kontrol tanımı ve ilişki değişikliklerine yetkili değildir. GRC ekibi bunları oturumlu arayüzden yönetir. İstemci anahtarı yalnızca `automatic` ve aktif kontroller için `source=mcp` sonuç yazabilir; manuel sonuçları insan kullanıcı girer.
 
-## Control orchestration flow
+## Akış
 
-1. Fetch available controls: \`GET /api/controls\`.
-2. Fetch one control and mappings: \`GET /api/controls/{id}/context\`. Read \`execution_mode\`, \`nature\`, \`frequency\`, \`method\` and \`expected_result\`.
-3. Execute the query using the MCP-enabled application and its existing authorized access to ServiceNow/Dynamics.
-4. Record collected evidence metadata: \`POST /api/evidence\`, or upload a binary (max 600,000 decoded bytes) to \`POST /api/evidence/upload\` with base64 JSON. Link it to relevant \`clauses\` and \`processes\`.
-5. Record the check: \`POST /api/executions\`:
-   \`\`\`json
-   {
-     "control_id": 1,
-     "audit_id": 2,
-     "status": "fail",
-     "source": "mcp",
-     "details": "Discovered server is not recorded in CMDB",
-     "evidence_ids": [3],
-     "severity": "high"
-   }
-   \`\`\`
-6. \`fail\` creates a finding and returns \`{"execution_id": ..., "finding_id": ...}\`. \`pass\` does not automatically close existing findings. \`inconclusive\` / \`not_applicable\` do not create findings.
-7. Inspect the immutable mappings attached to a run: \`GET /api/executions/{id}/context\`; inspect finding with \`GET /api/findings/{id}/context\`. Updating a control's current mapping will not rewrite its historical execution context.
-8. Inspect evidence's past uses: \`GET /api/evidence/{id}/context\`. Original evidence hash is checked on download.
+1. `GET /api/controls`: aktif otomatik kontrolleri seçin. `GET /api/controls/{id}/context`: yöntem, sıklık, beklenen sonuç ve süreç/madde/hedef bağlarını okuyun. Sıklık kayıtlıdır; zamanlama harici uygulamanın görevidir.
+2. Kontrol yöntemini yetkili kaynak erişimleriyle uygulayın. Kaynak API sayfalamasını tamamlayın. Kapsam/dönem/örneklem ve sorgu referansını kaydedin. İzin hatasını veya boş/eksik sayfalamayı başarılı kontrol olarak yorumlamayın.
+3. Dosya için `POST /api/evidence/upload`: `title`, `file_name`, `content_base64`, `source:"mcp"`; isteğe bağlı `controls`, `audits`, `clauses`, `processes` kimlik dizileri. En fazla 20 MiB çözümlenmiş dosya. Dosyasız kayıt için `POST /api/evidence` kullanılabilir. Tekrar kullanılacak mevcut kanıta yeni dosya sürümü: `POST /api/evidence/{id}/versions`.
+4. `POST /api/executions`:
 
-## Scope and standards
+```json
+{
+  "control_id": 1,
+  "audit_id": 2,
+  "status": "fail",
+  "source": "mcp",
+  "details": "Kaynak sorgusunda CMDB kaydı bulunmayan sunucu tespit edildi.",
+  "evidence_ids": [3],
+  "idempotency_key": "orchestrator-job-20261105-control-001",
+  "provenance": {
+    "source_system": "ServiceNow",
+    "query_reference": "approved-query:unregistered-hosts:v1",
+    "collection_status": "complete",
+    "sample_size": 100,
+    "period_start": "2026-11-01",
+    "period_end": "2026-11-05"
+  }
+}
+```
 
-- Add the actual licensed/authorized content of ISO/IEC 20000-1 or other standards via the standards + clauses endpoints; **the application does not bundle a full licensed standard**.
-- \`POST /api/audits/from-standard\` accepts \`{"name":"2026 Internal Audit","standard_id":1}\` and links all clauses *currently present* in that standard to the new audit.
-- Read the captured audit scope via \`GET /api/audits/{id}/scope\`.
-- Add and revise control's standard/process/objective relationships via \`POST /api/controls/{id}/mappings\` with any subset of \`clauses\`, \`processes\`, and \`objectives\` (arrays of IDs).
-- Update evidence's standard/process links via \`POST /api/evidence/{id}/mappings\`.
+Bu örnekteki kimlikleri gerçek kayıt kimlikleriyle değiştirin. `provenance` kaynak sistem iddiasını kaydeder, tek başına doğrulamaz; içine secret veya gereksiz kişisel veri koymayın. `executed_at` gönderilirse saat dilimli ISO 8601 olmalı; aksi halde sunucu zamanı kullanılır. İleri tarih reddedilir.
 
-## Acceptance cases
+5. İlk yazma HTTP 201 ve `execution_id`/`finding_id` döner. Aynı `idempotency_key` ve aynı JSON içerikle tekrar HTTP 200 ve `replayed:true` döner. Aynı anahtar farklı içerikle HTTP 409 verir. Başarılı yeniden denemelerde dosyayı tekrar yüklemeyin; alınan evidence ID'sini istemcinin kalıcı iş kaydında koruyun. Kanıt yükleme endpoint'inin kendisi idempotent değildir.
+6. `pass`, `fail`, `not_applicable`, `inconclusive` sonuçları desteklenir. `fail` bir bulgu oluşturur. Sonraki `pass` önceki bulguyu kapatmaz. `provenance.collection_status=partial/error` yalnızca `inconclusive` ile kabul edilir. Kanıt alınamadıysa bir insan tarafından tamamlanması için harici iş akışına aktarın; uygulama ilgili kişiye otomatik mesaj/e-posta göndermez.
+7. `GET /api/executions/{id}/context`: çalışma anındaki tanım, bağlar, kaynak bilgisi ve kullanılan kanıt sürümü/hash'i. Belirli sürümü seçmek için sonuç isteğine `evidence_versions:{"3":1}` eklenebilir. Aksi halde o andaki en son sürüm sabitlenir.
+8. `GET /api/findings/{id}/context`, `GET /api/evidence/{id}/context`, `GET /api/evidence/{id}/download?version=1`: bulgu ve kanıt geçmişini okuyun. Eski çalışma kaydında snapshot yoksa `snapshot_available:false`; tarihsel tanım uydurulmaz. Dosya sürümleri hash kontrolüyle indirilir; bu WORM/kriptografik imzalı kanıt zinciri değildir.
 
-| Scenario | Expected result |
-| --- | --- |
-| No credentials, GET /api/health | HTTP 401 |
-| Valid API key, GET /api/health | HTTP 200, status ok |
-| Create a standard with 2 clauses, then a standard-based audit | Audit contains exactly 2 clauses |
-| One control mapped to 2 clauses and 2 processes | Control context contains all four links |
-| Execute a failed automatic MCP control | Execution and one linked finding created |
-| Supply a related evidence ID | Control run links the evidence; evidence reuse history lists the run |
-| Change mappings after an execution | Historical execution keeps its original mappings |
-| Upload a binary and download it | Download matches original bytes and SHA-256 digest |
-| Mark a later run as pass | The earlier finding remains open, pending a deliberate closure |
-| Deploy isolated Compose project | NILES Compose, NILES DB and NILES container lifecycle unchanged |
+## Denetim ve ilişki yönetimi (insan oturumu)
 
-## Known MVP limitations
+`POST /api/audits/from-standard` seçilen standardın o anda kayıtlı tüm maddelerini kapsama alır. Kontrol–madde–süreç–hedef ve kanıt–audit/control/clause/process bağları çoktan çoğadır. Kaynak standardın lisanslı tam metnini işletmeci sağlamalıdır; örnek kataloglar resmî lisanslı standardın yerine geçmez.
 
-- User and role tables exist but role enforcement is not implemented; UI uses separate Basic credentials for prototype use.
-- Evidence file upload limit 600 KB; no malware scan, retention policy, encryption at rest, legal hold or evidence versioning.
-- User-facing editing, finding remediation workflow and standards imports are limited; do not use as a certified production audit system yet.
-- HTTPS/VPN access, tested restore, durable backups, and stronger identity integration are preconditions for production.
-- No direct ServiceNow integration or MCP calls originate from this repository.
+Kontrolün kanıtla ilişkilendirilmesi otomatik belgelendirme kararı değildir. Başarılı örneklem yalnızca değerlendirilmiş kapsam/dönem için yorumlanmalı; çapraz standart ekranı ön değerlendirme olarak kalmalıdır.
 
-## Deployment
+## Doğrulama kapsamı
 
-\`Deploy KS GRC (isolated)\` has both manual dispatch and a one-shot push trigger on \`.control-deploy-request\`. All seven \`CONTROL_*\` secrets must be in GitHub Actions environment \`control-grc\` or available as repository secrets. The workflow compiles Python, checks the UI JavaScript, runs unit+HTTP integration tests, builds the image, then copies only KS GRC files to \`/opt/control-grc\`.
+`tests/test_mcp_contract.py` bağımsız API-key HTTP istemcisiyle katalog okuma → dosya yükleme/indirme → fail → tekrar → 409 çatışması → yeni pass ve açık bulgunun korunmasını sınar. Yetkisiz yönetim, manuel kontrol ve hatalı veri toplama olumsuz senaryoları test edilir. Model testleri eşzamanlı sekiz yeniden denemede tek sonuç/bulgu ve kanıt sürümü korunmasını sınar.
 
-GitHub Actions must report success and the server health check must pass before claiming the service has been deployed. The host port remains loopback-only; test from a workstation with an SSH tunnel:
-
-\`\`\`powershell
-ssh -N -L 18080:127.0.0.1:18080 root@46.224.99.150
-\`\`\`
-
-Open http://127.0.0.1:18080 in a local browser and authenticate with the configured \`CONTROL_UI_USER\` / \`CONTROL_UI_PASSWORD\`. Direct access to http://PUBLIC_IP:18080 is deliberately not enabled.
+Bunlar sentetik kaynak verisiyle GRC tarafının teknik kabulüdür. **Canlı ServiceNow/Dynamics sorgusu, gerçek MCP uygulamasının adaptörü, kaynak veri kalitesi ve kullanıcı kabul imzası bu testlerle tamamlanmış sayılmaz.** Gerçek kabul için işletmeci bir onaylı otomatik kontrolü kendi MCP uygulamasından çalıştırıp kaynak kayıt–kanıt hash'i–çalışma–bulgu bağlantısını karşılaştırmalıdır.
