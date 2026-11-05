@@ -1,16 +1,13 @@
-Control GRC staging deployment request
-Date: 2026-11-04
-Release: 9d2896eb825a99a8ba42cd7c0a6840ecbf8b14b8
-Target: /opt/control-grc (independent NILES host Docker Compose project)
-Gates: 10 API/unit tests, JavaScript syntax, Docker build, authenticated live health check
-Highlights: bulk clauses CSV import, editable findings/audits, evidence mapping and atomic writes
-
-Final security cleanup: remove temporary /root/.ssh/control_grc_deploy private-key copy after verified Control GRC health check.
-
-Authenticated-user rollout 2026-11-04: first-login bootstrap, hashed DB account, password-change flow, no UI secret reuse. Commit f9d0785fe2552ba891e33e3a84e07a482d75549a
-
-2026-11-04: HTTPS Quick Tunnel preview, Secure cookie, first-user existence check. Ref 7685e8dd76fc2fa6e4d9ef86a1000d373eb19610.
-
-2026-11-04 KS GRC seed data release 5e5b44cb91ec3d753ddc95406a77213dc319b434: 144 framework clauses, 28 controls, 3 audits, 28 evidence artifacts, idempotent staging seed.
-
-2026-11-04 KS GRC traceability UI release c4a3f9ddf261ef45eef368ab5c609c2e2d6c4e71: findings/executions now display linked clauses, processes, objectives and evidence.
+KS GRC isolated staging deployment request
+Date: 2026-11-05
+Authorized scope: complete remaining KS GRC implementation, technical acceptance and isolated deployment per owner request.
+Release source: 78569613a15f88468d8f411f74326664efb8933d (PR #7, merged)
+Tested PR head: a93543b3af19e28f24f9c9331825343909ce5ee4
+Verified CI: https://github.com/Gokhanagingil/control/actions/runs/42001413527 — success
+Gates: 33 model/HTTP tests, Chromium synthetic browser acceptance, JS syntax, Compose validation, Docker build.
+Target: /opt/control-grc; Docker Compose project control-grc only.
+Before upgrade: coherent private SQLite/evidence backup inside own volume.
+After upgrade: SQLite integrity and foreign keys, active bootstrap account, new execution receipt schema, authenticated API/health, other container lifecycle comparison and external HTTPS login-page check.
+No NILES configuration, database or container mutation authorized.
+No passwords/API keys printed or reset.
+Live owner's MCP integration with ServiceNow/Dynamics and human acceptance are not represented as completed by this deployment.
