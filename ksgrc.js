@@ -692,7 +692,7 @@ function relationshipMapSVG(){
  '<rect x="'+x+'" y="'+y+'" width="245" height="6" rx="3" fill="'+(['controls','executions'].includes(route)?'#2667db':'#168c86')+'"/>'+
  '<text x="'+(x+17)+'" y="'+(y+35)+'" font-size="19" font-weight="700" fill="#173755">'+esc(title)+'</text>'+
  lines.map((line,i)=>'<text x="'+(x+17)+'" y="'+(y+61+19*i)+'" font-size="13" fill="#536b84">'+esc(line)+'</text>').join('')+'</g>';
- const label=(x,y,text)=>'<text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#3c5d7a" stroke="#f8fbff" stroke-width="6" paint-order="stroke" stroke-linejoin="round">'+esc(text)+'</text>';
+ const label=(x,y,text)=>'<g><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#f8fbff" stroke="#f8fbff" stroke-width="6" stroke-linejoin="round">'+esc(text)+'</text><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#3c5d7a">'+esc(text)+'</text></g>';
  const edge=(d,x,y,text,derived=false)=>'<path d="'+d+'" fill="none" stroke="'+(derived?'#8b93a2':'#6686a9')+'" stroke-width="2"'+(derived?' stroke-dasharray="6 5"':'')+' marker-end="url(#mapArrow)"/>'+label(x,y,text);
  let svg='<svg xmlns="http://www.w3.org/2000/svg" id="relationshipMap" viewBox="0 0 1440 1040" role="img" aria-labelledby="mapTitle mapDescription" style="font-family:system-ui,Segoe UI,Arial,sans-serif">'+
  '<title id="mapTitle">KS GRC kayıt ilişki haritası</title><desc id="mapDescription">Standart, madde, hedef, süreç, kontrol, denetim, çalışma, kanıt, bulgu ve düzeltici faaliyet ilişkileri. Düz çizgi doğrudan ilişki; kesikli çizgi kontroller üzerinden türetilen bağdır. Kanıtın ek doğrudan ilişkileri altta tekrar gösterilmiştir.</desc>'+

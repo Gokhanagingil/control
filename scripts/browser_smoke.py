@@ -106,13 +106,16 @@ def exercise_feedback(page,out,checks):
     expect(row).to_have_attribute('aria-current','true')
     grip=page.locator('#detailResize')
     expect(grip).to_be_visible()
+    grip.hover()  # Wait for opening transition to settle before using coordinates.
     before=page.locator('#detail').bounding_box()['width']
     rect=grip.bounding_box();x=rect['x']+rect['width']/2;y=300
-    page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-160,y,steps=12);page.mouse.up()
+    page.mouse.move(x,y);page.mouse.down()
+    expect(page.locator('body')).to_have_class('resizing-detail')
+    page.mouse.move(x-160,y,steps=12);page.mouse.up()
     after=page.locator('#detail').bounding_box()['width']
     assert after>before+120,(before,after)
     expect(grip).to_have_attribute('aria-valuenow',str(round(after)))
-    page.screenshot(path=str(out/'06-resized-split-view.png'),full_page=True)
+    page.screenshot(path=str(out/'06-resized-split-view.png'),full_page=False)
     page.reload()
     row=page.locator('#content [data-row]').first;row.focus();row.press('Enter')
     expect(page.locator('#detail')).to_have_class('open')
