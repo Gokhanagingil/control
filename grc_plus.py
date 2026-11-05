@@ -514,6 +514,78 @@ def _error(handler,exc):
         handler.respond(500,{"error":"Beklenmeyen işlem hatası"})
 
 
+
+def objective_context(db, oid):
+    """Direct controls; clauses/processes derived through CURRENT control mappings."""
+    objective=db.execute("SELECT * FROM objectives WHERE id=?", (oid,)).fetchone()
+    if not objective:
+        return None
+    result=dict(objective)
+    result["controls"]=rows(db,"""SELECT c.* FROM controls c
+        JOIN control_objectives co ON co.control_id=c.id
+        WHERE co.objective_id=? ORDER BY c.code,c.id""",(oid,))
+    result["clauses"]=rows(db,"""SELECT DISTINCT cl.*,s.code AS standard_code,s.name AS standard_name
+        FROM control_objectives co JOIN control_clauses cc ON cc.control_id=co.control_id
+        JOIN clauses cl ON cl.id=cc.clause_id JOIN standards s ON s.id=cl.standard_id
+        WHERE co.objective_id=? ORDER BY s.code,cl.code,cl.id""",(oid,))
+    result["processes"]=rows(db,"""SELECT DISTINCT p.* FROM control_objectives co
+        JOIN control_processes cp ON cp.control_id=co.control_id JOIN processes p ON p.id=cp.process_id
+        WHERE co.objective_id=? ORDER BY p.code,p.id""",(oid,))
+    result["relationship_basis"]={"controls":"direct","clauses":"via_controls","processes":"via_controls"}
+    return result
+
+
+def set_objective_controls(db, oid, ids):
+    """Replace this objective's links only; do not rewrite any execution snapshot."""
+    if not isinstance(ids,list) or any(type(i)is not int or i<1 for i in ids):
+        raise ValueError("Kontrol kimlikleri pozitif tam sayı listesi olmalı")
+    if not db.execute("SELECT id FROM objectives WHERE id=?",(oid,)).fetchone():
+        raise ValueError("Kontrol hedefi bulunamadı")
+    for cid in set(ids):
+        if not db.execute("SELECT id FROM controls WHERE id=?",(cid,)).fetchone():
+            raise ValueError("Bağlanmak istenen kontrol bulunamadı")
+    db.execute("DELETE FROM control_objectives WHERE objective_id=?",(oid,))
+    db.executemany("INSERT INTO control_objectives(control_id,objective_id) VALUES(?,?)",
+                   [(cid,oid) for cid in sorted(set(ids))])
+    return objective_context(db,oid)
+
+
+def audit_context(db, aid):
+    """Keep this audit's findings distinct from other open findings in its control scope.
+
+    An explicit finding.audit_id is authoritative; legacy rows can inherit the audit
+    from their execution. Scope controls include current clause mappings AND controls
+    actually tested in this audit, even if their current mappings later change.
+    """
+    import app
+    result=app.audit_scope(db,aid)
+    if result is None:
+        return None
+    scope_sql="""SELECT cc.control_id FROM control_clauses cc
+        JOIN audit_clauses ac ON ac.clause_id=cc.clause_id WHERE ac.audit_id=:aid
+        UNION SELECT control_id FROM executions WHERE audit_id=:aid"""
+    result["controls"]=rows(db,f"SELECT * FROM controls WHERE id IN ({scope_sql}) ORDER BY code,id",{"aid":aid})
+    finding_sql="""SELECT f.*,COALESCE(f.audit_id,x.audit_id) AS origin_audit_id,
+        COALESCE(f.control_id,x.control_id) AS effective_control_id,
+        c.code AS control_code,c.name AS control_name,a.name AS origin_audit_name,
+        CASE WHEN f.audit_id IS NOT NULL THEN 'direct'
+             WHEN x.audit_id IS NOT NULL THEN 'via_execution' ELSE 'outside_audit' END AS audit_link_source
+        FROM findings f LEFT JOIN executions x ON x.id=f.execution_id
+        LEFT JOIN controls c ON c.id=COALESCE(f.control_id,x.control_id)
+        LEFT JOIN audits a ON a.id=COALESCE(f.audit_id,x.audit_id)"""
+    result["findings"]=rows(db,finding_sql+"""
+        WHERE COALESCE(f.audit_id,x.audit_id)=:aid ORDER BY f.created_at DESC,f.id DESC""",{"aid":aid})
+    result["other_open_findings"]=rows(db,finding_sql+f"""
+        WHERE (COALESCE(f.audit_id,x.audit_id) IS NULL OR COALESCE(f.audit_id,x.audit_id)<>:aid)
+        AND f.status IN ('open','in_progress')
+        AND COALESCE(f.control_id,x.control_id) IN ({scope_sql})
+        ORDER BY f.created_at DESC,f.id DESC""",{"aid":aid})
+    result["finding_summary"]={"total":len(result["findings"]),
+        "open":sum(f["status"] in ("open","in_progress") for f in result["findings"]),
+        "other_open":len(result["other_open_findings"])}
+    return result
+
+
 def get(handler):
     """Return True when a request is handled."""
     import app
@@ -522,6 +594,10 @@ def get(handler):
     query=parse_qs(path.query)
     try:
         with app.connect() as db:
+            if len(parts)==4 and parts[0]=="api" and parts[3]=="context" and parts[1] in ("objectives","audits"):
+                result=(objective_context if parts[1]=="objectives" else audit_context)(db,int(parts[2]))
+                return handler.respond(200 if result is not None else 404,
+                    result if result is not None else {"error":"Kayıt bulunamadı"}) or True
             if path.path=="/api/metadata":
                 return handler.respond(200,{"labels":{**app.LABELS,**NEW_LABELS},
                     "fields":FIELD_LABELS,"choices":CHOICES}) or True
@@ -597,6 +673,18 @@ def post(handler):
     path=urlparse(handler.path)
     parts=path.path.strip("/").split("/")
     try:
+        if len(parts)==4 and parts[:2]==["api","objectives"] and parts[3]=="controls":
+            if getattr(handler,"auth_type",None)!="session":
+                return handler.respond(403,{"error":"Kullanıcı oturumu gerekli"}) or True
+            oid=int(parts[2]);data=json_body(handler)
+            with app.connect() as db:
+                if not db.execute("SELECT id FROM objectives WHERE id=?",(oid,)).fetchone():
+                    return handler.respond(404,{"error":"Kontrol hedefi bulunamadı"}) or True
+                result=set_objective_controls(db,oid,data.get("control_ids"))
+                log(db,handler,"MAP","objectives",oid,"Kontrol hedefi–kontrol bağlantıları")
+                db.commit()
+            handler.respond(200,result)
+            return True
         if len(parts)==2 and parts[:1]==["api"] and parts[1] in SCHEMA:
             table=parts[1];data=json_body(handler)
             validate_record(table,data)

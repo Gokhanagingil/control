@@ -101,6 +101,38 @@ box-shadow:-10px 0 30px #1a365314;transform:translateX(105%);transition:transfor
 @media(max-width:560px){.cards{grid-template-columns:repeat(2,1fr)}.metric{padding:14px}.metric-number{font-size:23px}
 #topline{display:block}#topActions{justify-content:flex-start;margin-top:14px}
 .formgrid,.audit-grid{grid-template-columns:1fr}.detail-head{padding:17px}.detail-content{padding:18px}.detail-footer{padding:10px 18px}}
+
+/* Resizable split view: reserve list space; keep the form readable on narrow screens. */
+:root{--detail-width:540px}
+#detail{width:var(--detail-width)}
+#main.details-open{padding-right:calc(var(--detail-width) + 35px)}
+#detailResize{position:absolute;top:0;bottom:0;left:-7px;width:14px;cursor:col-resize;touch-action:none;z-index:35;outline:none}
+#detailResize:before{content:"";position:absolute;left:6px;top:0;bottom:0;width:2px;background:#c3d2e5}
+#detailResize:after{content:"⋮";position:absolute;top:48%;left:0;width:14px;text-align:center;padding:12px 0;border-radius:6px;background:#dce8f7;color:#315c96}
+#detailResize:hover:before,#detailResize:focus-visible:before{width:4px;left:5px;background:#2667db}
+#detailResize:focus-visible:after{outline:3px solid #93b9f5}
+#detail:not(.open) #detailResize{display:none}
+body.resizing-detail,body.resizing-detail *{cursor:col-resize!important;user-select:none!important}
+body.resizing-detail #main,body.resizing-detail #detail{transition:none}
+.detail-resize-hint{padding:7px 24px;font-size:11px;color:#59708a;border-bottom:1px solid #e8edf3;background:#f8fafc}
+tr.clickable:focus-visible{outline:2px solid #2667db;outline-offset:-2px}
+tr.selected-row td{background:#edf5ff;box-shadow:inset 0 -1px #bad3f7}
+.relationship-list{list-style:none;margin:10px 0;padding:0;display:grid;gap:8px}
+.relationship-list li{border:1px solid #dfe7f1;border-radius:9px;background:#fbfcff;overflow:hidden}
+.record-link{display:flex;gap:12px;align-items:center;justify-content:space-between;width:100%;padding:12px;text-align:left;background:none;border:0;color:#245481;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.record-link:hover{background:#eaf2ff}.record-link span:first-child{min-width:0}
+.finding-meta,.finding-origin{padding:0 12px 10px;line-height:1.7;font-size:12px;color:#64748b}
+.inline-record-link{border:0;background:none;color:#2667db;font:inherit;padding:0;text-decoration:underline;text-underline-offset:2px}
+.relationship-empty{font-size:12px}.detail-section summary{font-size:14px;font-weight:650;cursor:pointer;line-height:1.7;color:#34506e}
+.map-viewport{overflow:auto;background:#f8fbff;border:1px solid #dce6f3;border-radius:14px;max-height:calc(100vh - 240px);min-height:380px}
+#relationshipMap{display:block;width:100%;height:auto;min-width:0}
+.map-node{cursor:pointer}.map-node:hover rect,.map-node:focus-visible rect{stroke:#2563eb;stroke-width:3}
+.map-node:focus-visible{outline:none}.map-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.map-note{font-size:12px;line-height:1.7;color:#64748b}
+@media(max-width:1150px) and (min-width:1001px){#main.details-open{padding-right:calc(var(--detail-width) + 20px)}}
+@media(max-width:1000px){#detail{width:min(620px,100vw)}#main.details-open{padding-right:35px}#detailResize,.detail-resize-hint{display:none}}
+@media(max-width:800px){#main.details-open{padding:18px}#detail{width:100vw}.map-viewport{min-height:300px;max-height:75vh}}
+
 </style>
 </head>
 <body>
@@ -115,9 +147,11 @@ box-shadow:-10px 0 30px #1a365314;transform:translateX(105%);transition:transfor
  <div id="topActions"></div></header>
  <div id="content" aria-live="polite"><div class="panel">İçerik hazırlanıyor…</div></div>
 </main>
-<aside id="detail" aria-label="Kayıt ayrıntısı" aria-hidden="true">
+<aside id="detail" aria-label="Kayıt ayrıntısı" aria-hidden="true" inert>
+ <div id="detailResize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Kayıt ayrıntısı genişliği" aria-controls="detail" aria-valuemin="360" aria-valuemax="900" aria-valuenow="540" title="Genişliği değiştirmek için sürükleyin; çift tıklama ile sıfırlayın"></div>
  <header class="detail-head"><h2 id="detailTitle">Kayıt</h2>
   <button class="btn secondary small" id="closeDetail" aria-label="Ayrıntıyı kapat">Kapat ✕</button></header>
+ <div class="detail-resize-hint">Sol kenarı sürükleyerek genişliği değiştirin · Çift tıklama: varsayılan genişlik</div>
  <div id="detailContent" class="detail-content"></div>
  <footer id="detailFooter" class="detail-footer"></footer>
 </aside>

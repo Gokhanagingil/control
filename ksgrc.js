@@ -36,7 +36,7 @@ const REQUIRED={standards:['code','name'],clauses:['standard_id','code','title']
 const REFS={standard_id:'standards',parent_id:'clauses',control_id:'controls',audit_id:'audits',finding_id:'findings'};
 const DATES=new Set(['planned_start','planned_end','actual_start','actual_end','due_date','period_start','period_end','expires_at']);
 const TEXTAREAS=new Set(['description','scope','method','expected_result','treatment','resolution']);
-const STATE={view:'home',cache:{},meta:{fields:{},choices:{}},search:'',page:0,detail:null};
+const STATE={view:'home',cache:{},meta:{fields:{},choices:{}},search:'',page:0,detail:null,record:null,trail:[]};
 const PER_PAGE=40;
 async function api(path,init={}){
  const r=await fetch('/api/'+path,{credentials:'same-origin',...init,headers:{'Content-Type':'application/json',...(init.headers||{})}});
@@ -68,19 +68,121 @@ function showValue(table,field,value){
  return esc(text.length>145?text.slice(0,142)+'…':text);
 }
 function drawer(title,html,buttons=[]){
- $('detailTitle').textContent=title;$('detailContent').innerHTML=html;
+ $('detailTitle').textContent=title;$('detailContent').innerHTML=html;$('detailContent').scrollTop=0;
  $('detailFooter').innerHTML='';
  for(const [name,callback,variant] of buttons){
   const b=document.createElement('button');b.type='button';b.className='btn '+(variant||'');
   b.textContent=name;b.onclick=async()=>{if(b.disabled)return;b.disabled=true;try{await callback()}catch(e){toast(e.message,false)}finally{b.disabled=false}};$('detailFooter').append(b)
  }
  $('detail').classList.add('open');$('main').classList.add('details-open');
- $('detail').setAttribute('aria-hidden','false');STATE.detail={title};
+ $('detail').setAttribute('aria-hidden','false');$('detail').inert=false;STATE.detail={title};
+ applyDetailWidth();markSelectedRow();
 }
 function closeDetail(){
  $('detail').classList.remove('open');$('main').classList.remove('details-open');
- $('detail').setAttribute('aria-hidden','true');STATE.detail=null
+ $('detail').setAttribute('aria-hidden','true');$('detail').inert=true;STATE.detail=null;STATE.record=null;STATE.trail=[];markSelectedRow()
 }
+
+function markSelectedRow(){
+ $('content')?.querySelectorAll('[data-row]').forEach(row=>{
+  const selected=!!STATE.detail&&STATE.record?.table===STATE.view&&Number(row.dataset.row)===STATE.record.id;
+  row.classList.toggle('selected-row',selected);
+  if(selected)row.setAttribute('aria-current','true');else row.removeAttribute('aria-current');
+ });
+}
+let detailPreference=null;
+try{const n=Number(localStorage.getItem('ksgrc.detailWidth'));if(n>=360&&n<=4000)detailPreference=n}catch{}
+function detailBounds(){
+ const sidebar=window.innerWidth>800?244:0;
+ return {min:360,max:Math.max(360,window.innerWidth-sidebar-390)};
+}
+function applyDetailWidth(value=detailPreference,persist=false){
+ const {min,max}=detailBounds();
+ const width=Math.round(Math.min(max,Math.max(min,value??540)));
+ document.documentElement.style.setProperty('--detail-width',width+'px');
+ const grip=$('detailResize');
+ if(grip){
+  grip.setAttribute('aria-valuemin',String(min));grip.setAttribute('aria-valuemax',String(max));
+  grip.setAttribute('aria-valuenow',String(width));grip.setAttribute('aria-valuetext',width+' piksel genişlik');
+ }
+ if(persist){detailPreference=width;try{localStorage.setItem('ksgrc.detailWidth',String(width))}catch{}}
+ return width;
+}
+function setupDetailResize(){
+ const grip=$('detailResize');if(!grip)return;
+ let drag=null;
+ const finish=()=>{drag=null;document.body.classList.remove('resizing-detail')};
+ grip.addEventListener('pointerdown',event=>{
+  if(event.button!==0||window.innerWidth<=1000)return;
+  event.preventDefault();grip.focus();
+  drag={id:event.pointerId,x:event.clientX,width:$('detail').getBoundingClientRect().width};
+  grip.setPointerCapture(event.pointerId);document.body.classList.add('resizing-detail');
+ });
+ grip.addEventListener('pointermove',event=>{
+  if(drag&&event.pointerId===drag.id)applyDetailWidth(drag.width+drag.x-event.clientX,true);
+ });
+ grip.addEventListener('pointerup',event=>{
+  if(drag&&grip.hasPointerCapture(event.pointerId))grip.releasePointerCapture(event.pointerId);finish();
+ });
+ grip.addEventListener('pointercancel',finish);grip.addEventListener('lostpointercapture',finish);
+ grip.addEventListener('dblclick',()=>applyDetailWidth(540,true));
+ grip.addEventListener('keydown',event=>{
+  const current=$('detail').getBoundingClientRect().width,step=event.shiftKey?80:24;
+  const {min,max}=detailBounds();
+  const value={ArrowLeft:current+step,ArrowRight:current-step,Home:min,End:max,Enter:540}[event.key];
+  if(value!==undefined){event.preventDefault();applyDetailWidth(value,true)}
+ });
+ window.addEventListener('resize',()=>{finish();applyDetailWidth()});
+ applyDetailWidth();
+}
+function relatedRecords(table,items,format=titleOf){
+ return items?.length?'<ul class="relationship-list">'+items.map(item=>
+  '<li><button type="button" class="record-link" data-related-table="'+table+'" data-related-id="'+item.id+'">'+
+  '<span>'+esc(format(item))+'</span><span aria-hidden="true">›</span></button></li>').join('')+'</ul>':
+  '<p class="muted relationship-empty">Henüz ilişki bulunmuyor.</p>';
+}
+function setupRelatedNavigation(){
+ $('detailContent').addEventListener('click',event=>{
+  const link=event.target.closest('[data-related-table]');if(!link)return;
+  const table=link.dataset.relatedTable,id=Number(link.dataset.relatedId);
+  if(!LABELS[table]||!Number.isInteger(id)||id<1)return;
+  event.preventDefault();
+  if(STATE.record)STATE.trail.push({...STATE.record});
+  openRecord(table,id,true);
+ });
+}
+async function detailObjective(rec,basic,footer){
+ const ctx=await api('objectives/'+rec.id+'/context');
+ const html='<div class="notice">Kontroller bu hedefe <b>doğrudan</b> bağlıdır. Standart maddeleri ve süreçler, bu kontrollerin güncel eşlemelerinden türetilir; ayrı bir doğrudan hedef–madde veya hedef–süreç kaydı değildir.</div>'+basic+
+ '<section class="detail-section" id="objectiveControls"><h3>Bağlı kontroller ('+ctx.controls.length+') <span class="pill">Doğrudan</span></h3>'+
+ relatedRecords('controls',ctx.controls,x=>x.code+' — '+x.name)+'</section>'+
+ '<section class="detail-section" id="objectiveClauses"><h3>Standart maddeleri ('+ctx.clauses.length+') <span class="pill">Kontroller üzerinden</span></h3>'+
+ relatedRecords('clauses',ctx.clauses,x=>x.standard_code+' • '+x.code+' — '+x.title)+'</section>'+
+ '<section class="detail-section" id="objectiveProcesses"><h3>Süreçler ('+ctx.processes.length+') <span class="pill">Kontroller üzerinden</span></h3>'+
+ relatedRecords('processes',ctx.processes,x=>x.code+' — '+x.name)+'</section>';
+ drawer('Kontrol hedefi • '+rec.code,html,[['Kontrol bağlantılarını düzenle',()=>objectiveLinks(rec.id)],...footer]);
+}
+async function objectiveLinks(id){
+ const [ctx,controls]=await Promise.all([api('objectives/'+id+'/context'),list('controls',true)]);
+ drawer('Hedefin kontrol bağlantıları',
+  '<div class="notice">Yalnızca bu hedefin kontrol bağlantıları değişir. Geçmiş kontrol çalışmalarının kayıtları korunur.</div>'+
+  checks('objective_controls','Bağlı kontroller',controls,ctx.controls,x=>x.code+' — '+x.name),
+ [['Bağlantıları kaydet',async()=>{
+  await api('objectives/'+id+'/controls',{method:'POST',body:JSON.stringify({control_ids:selected('objective_controls')})});
+  toast('Kontrol hedefi bağlantıları kaydedildi');await openRecord('objectives',id,true);
+ }],['Vazgeç',()=>openRecord('objectives',id,true),'secondary']]);bindChecks();
+}
+function auditFindingsSection(id,title,items,note){
+ return '<section class="detail-section" id="'+id+'"><h3>'+title+' ('+items.length+')</h3>'+
+ '<p class="intro">'+esc(note)+'</p>'+(items.length?'<ul class="relationship-list">'+items.map(f=>
+ '<li class="finding-card"><button type="button" class="record-link" data-related-table="findings" data-related-id="'+f.id+'">'+
+ '<span>#'+f.id+' — '+esc(f.title)+'</span><span aria-hidden="true">›</span></button>'+
+ '<div class="finding-meta">'+showValue('findings','severity',f.severity)+' '+showValue('findings','status',f.status)+'</div>'+
+ '<div class="finding-origin">Kontrol: '+(f.effective_control_id?'<button class="inline-record-link" data-related-table="controls" data-related-id="'+f.effective_control_id+'">'+esc(f.control_code||('#'+f.effective_control_id))+'</button>':'Bağlı kontrol yok')+
+ ' · Kaynak: '+(f.origin_audit_id?'<button class="inline-record-link" data-related-table="audits" data-related-id="'+f.origin_audit_id+'">'+esc(f.origin_audit_name||('#'+f.origin_audit_id))+'</button>':'Denetim dışı')+'</div></li>').join('')+'</ul>':
+ '<p class="muted relationship-empty">Bu grupta bulgu bulunmuyor.</p>')+'</section>';
+}
+
 function actions(buttons){$('topActions').innerHTML='';for(const [text,handler,variant] of buttons){
  const b=document.createElement('button');b.className='btn '+(variant||'');b.textContent=text;b.onclick=handler;
  $('topActions').append(b)}}
@@ -90,6 +192,7 @@ function navigation(){
  $('nav').querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>navigate(b.dataset.nav));
 }
 async function navigate(view){
+ if(STATE.mapObserver){STATE.mapObserver.disconnect();STATE.mapObserver=null}
  if(!LABELS[view])view='home';closeDetail();STATE.view=view;STATE.search='';STATE.page=0;
  history.replaceState({},'', '#/'+view);navigation();$('pageTitle').textContent=LABELS[view];
  $('pageSub').textContent=view==='compliance'?'Denetim, standart ve süreç bazında dinamik değerlendirme':
@@ -111,13 +214,13 @@ function tableHTML(table,source){
  const items=results.slice(STATE.page*PER_PAGE,(STATE.page+1)*PER_PAGE);
  const cols=COLUMNS[table]||['code','title','status'];
  return '<div class="panel"><div class="panel-title"><h2>'+LABELS[table]+' <span class="muted">('+results.length+')</span></h2>'+
- '<span class="badge-note">Ayrıntılar sağ panelde açılır</span></div><div class="toolbar">'+
+ '<span class="badge-note">Ayrıntı için satıra tıklayın · Enter ile de açılır</span></div><div class="toolbar">'+
  '<input id="tableSearch" class="searchbar" placeholder="Kayıt, kod veya açıklama ara…" value="'+esc(STATE.search)+'" aria-label="Kayıtlarda ara">'+
  '<div class="toolbar"><button class="btn secondary small" id="tableExport">Excel’e aktar</button>'+
  '<button class="btn secondary small" id="tableImport">Excel’den aktar</button></div></div>'+
- '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+esc(label(c))+'</th>').join('')+'<th></th></tr></thead><tbody>'+
- items.map(x=>'<tr class="clickable" data-row="'+x.id+'">'+cols.map((c,i)=>'<td'+(i===0?' class="cell-primary"':'')+'>'+showValue(table,c,x[c])+'</td>').join('')+
- '<td><button class="btn ghost small" data-open="'+x.id+'">Aç ›</button></td></tr>').join('')+
+ '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+esc(label(c))+'</th>').join('')+'</tr></thead><tbody>'+
+ items.map(x=>'<tr class="clickable" tabindex="0" aria-label="'+esc(titleOf(x)+' — ayrıntı')+'" data-row="'+x.id+'">'+cols.map((c,i)=>'<td'+(i===0?' class="cell-primary"':'')+'>'+showValue(table,c,x[c])+'</td>').join('')+
+ '</tr>').join('')+
  '</tbody></table>'+(results.length?'':'<div class="empty">Kayıt bulunamadı. Yeni bir kayıt ekleyebilir veya arama filtresini temizleyebilirsin.</div>')+'</div>'+
  '<div class="pager"><span>'+(results.length?STATE.page*PER_PAGE+1:0)+'–'+Math.min(results.length,(STATE.page+1)*PER_PAGE)+
  ' / '+results.length+'</span><div><button class="btn ghost small" id="prev" '+(STATE.page===0?'disabled':'')+'>Önceki</button>'+
@@ -131,8 +234,17 @@ function bindTable(table){
  };
  $('tableExport').onclick=()=>exportExcel(table);$('tableImport').onclick=()=>importExcel(table);
  $('prev').onclick=()=>{STATE.page--;refreshTable(table)};$('next').onclick=()=>{STATE.page++;refreshTable(table)};
- $('content').querySelectorAll('[data-row]').forEach(r=>r.onclick=()=>openRecord(table,Number(r.dataset.row)));
- $('content').querySelectorAll('[data-open]').forEach(r=>r.onclick=ev=>{ev.stopPropagation();openRecord(table,Number(r.dataset.open))});
+ $('content').querySelectorAll('[data-row]').forEach(row=>{
+  const activate=()=>openRecord(table,Number(row.dataset.row));
+  row.onclick=event=>{
+   if(event.target.closest('button,a,input,select,textarea')||window.getSelection()?.toString())return;
+   activate();
+  };
+  row.onkeydown=event=>{if(event.target===row&&(event.key==='Enter'||event.key===' ')){
+   event.preventDefault();activate();
+  }};
+ });
+ markSelectedRow();
 }
 function refreshTable(table){$('content').innerHTML=tableHTML(table,STATE.cache[table]||[]);bindTable(table)}
 async function renderTable(table){
@@ -242,13 +354,17 @@ function bindChecks(){
  });
 }
 function selected(group){return [...$('detailContent').querySelectorAll('input[data-link="'+group+'"]:checked')].map(x=>Number(x.value))}
-async function openRecord(table,id){
+async function openRecord(table,id,keepTrail=false){
  try{
+  if(!keepTrail)STATE.trail=[];
+  STATE.record={table,id};
   const record=(await list(table,true)).find(x=>x.id===id);
   if(!record)throw Error('Kayıt bulunamadı');
   const html='<div class="detail-section"><h3>Kayıt bilgileri</h3>'+values(table,record)+'</div>';
   const footer=FORM[table]?[['Düzenle',()=>editForm(table,record),'secondary'],['Kapat',closeDetail,'secondary']]:
    [['Kapat',closeDetail,'secondary']];
+  if(STATE.trail.length)footer.unshift(['← Önceki kayıt',()=>{const previous=STATE.trail.pop();return openRecord(previous.table,previous.id,true)},'secondary']);
+  if(table==='objectives')return detailObjective(record,html,footer);
   if(table==='controls')return detailControl(record,html,footer);
   if(table==='audits')return detailAudit(record,html,footer);
   if(table==='evidence')return detailEvidence(record,html,footer);
@@ -280,19 +396,22 @@ async function detailControl(rec,basic,footer){
  bindChecks();
 }
 async function detailAudit(rec,basic,footer){
- const [scope,evidence,all]=await Promise.all([
-  api('audits/'+rec.id+'/scope'),api('audits/'+rec.id+'/evidence'),list('evidence')]);
- const scopeHtml='<div class="detail-section"><h3>Kapsamdaki standart maddeleri ('+scope.clauses.length+')</h3>'+
-  '<div class="link-box">'+scope.clauses.map(c=>'<div class="link-option">'+esc(c.standard_code+' '+c.code+' — '+c.title)+'</div>').join('')+
-  '</div></div>';
+ const [ctx,evidence,all]=await Promise.all([
+  api('audits/'+rec.id+'/context'),api('audits/'+rec.id+'/evidence'),list('evidence',true)]);
+ const scopeHtml='<details class="detail-section"><summary>Kapsamdaki standart maddeleri ('+ctx.clauses.length+')</summary>'+
+  relatedRecords('clauses',ctx.clauses,c=>c.standard_code+' '+c.code+' — '+c.title)+'</details>';
+ const findings=auditFindingsSection('auditFindings','Bu denetimin bulguları',ctx.findings,
+  'Doğrudan bu denetime veya bu denetimdeki kontrol çalışmasına bağlı bulgular; kapalı kayıtlar da dahildir.')+
+  auditFindingsSection('auditOtherFindings','Kapsamdaki kontrollerin diğer açık bulguları',ctx.other_open_findings,
+  'Başka denetimlerden veya denetim dışı çalışmalardan gelen açık bulgular. Bu denetimde açılmış sayılmaz; kaynak bağlantısı korunur.');
  const linked=checks('audit_evidence','Bu denetimin kanıtları',all,evidence,x=>x.title);
- drawer('Denetim • '+rec.name,basic+scopeHtml+
- '<div class="notice">Denetim kanıtı doğrudan veya kontrol çalışması üzerinden ilişkilendirilebilir. İki tür bağlantı birlikte görüntülenir.</div>'+linked,
+ drawer('Denetim • '+rec.name,
+ '<div class="notice"><b>'+ctx.finding_summary.total+' bulgu</b> · '+ctx.finding_summary.open+' açık · '+ctx.finding_summary.other_open+' diğer açık bulgu</div>'+findings+basic+scopeHtml+
+ '<details class="detail-section"><summary>Kapsam / çalışma kontrolleri ('+ctx.controls.length+')</summary>'+
+ relatedRecords('controls',ctx.controls,c=>c.code+' — '+c.name)+'</details>'+linked,
  [['Kanıtları kaydet',async()=>{
-  try{await api('audits/'+rec.id+'/evidence',{method:'POST',body:JSON.stringify({
-   evidence_ids:selected('audit_evidence')})});
-   toast('Denetim kanıtları kaydedildi');openRecord('audits',rec.id)
-  }catch(e){toast(e.message,false)}
+  await api('audits/'+rec.id+'/evidence',{method:'POST',body:JSON.stringify({evidence_ids:selected('audit_evidence')})});
+  toast('Denetim kanıtları kaydedildi');await openRecord('audits',rec.id,true);
  }],['Uyumluluğunu göster',()=>navigate('compliance').then(()=>setCompliance('audit',rec.id)),'secondary'],...footer]);
  bindChecks();
 }
@@ -554,46 +673,86 @@ function displayCompliance(data){
  '</tbody></table>'+(results.length?'':'<div class="empty">Seçilen kapsamda eşleştirilmiş kontrol bulunamadı.</div>')+'</div></div>';
  $('complianceResult').querySelectorAll('[data-control]').forEach(x=>x.onclick=()=>openRecord('controls',Number(x.dataset.control)));
 }
-function architecturePage(){
+function relationshipMapSVG(){
  const nodes=[
-  {x:24,w:190,title:'Kaynak Sistemler',items:['ServiceNow ITSM','Dynamics 365','CMDB ve keşif','SIEM / altyapı'],color:'#244263'},
-  {x:260,w:188,title:'MCP Katmanı',items:['Yetkili sorgulama','Zamanlama','Sonuç üretme'],color:'#116e77'},
-  {x:492,w:218,title:'KS GRC Çekirdeği',items:['Standart / maddeler','Kontrol hedefleri','Kontroller / süreçler','Riskler / dokümanlar'],color:'#2856a4'},
-  {x:755,w:204,title:'Kanıt Kütüphanesi',items:['Dosya ve SHA-256','Sürüm geçmişi','Çoklu bağlantı','Denetim geçmişi'],color:'#264663'},
-  {x:1003,w:195,title:'Güvence ve Takip',items:['Denetimler','Kontrol sonuçları','Bulgular','Düzeltici faaliyet'],color:'#264663'}
+  ['standards',50,100,'Standart / otorite',['Gereklilik kaynağı ve sürümü','Örnek: ISO 20000']],
+  ['clauses',415,100,'Standart maddesi',['Standardın alt gerekliliği','Denetimin kapsam birimi']],
+  ['objectives',780,100,'Kontrol hedefi',['Ulaşılmak istenen güvence','Birden fazla kontrolle sağlanır']],
+  ['processes',1145,100,'Süreç',['Kontrolün ilişkili olduğu süreç','Örnek: konfigürasyon yönetimi']],
+  ['audits',50,370,'Denetim',['Kapsam, tarih ve katılımcılar','Kendi bulguları ayrı izlenir']],
+  ['controls',415,370,'Kontrol tanımı',['Yöntem, sıklık ve beklenen sonuç','Manuel / otomatik uygulama']],
+  ['executions',780,370,'Kontrol çalışması',['Belirli tarih, kapsam ve sonuç','Tanım ve ilişkilerin anlık kaydı']],
+  ['evidence',1145,370,'Kanıt',['Dosya, sürüm ve SHA-256','Birden fazla çalışmayı destekler']],
+  ['documents',50,650,'Talimat / doküman',['İç hüküm veya uygulama kuralı','Kontrollere kaynak olur']],
+  ['findings',780,650,'Bulgu',['Uygunsuzluk veya gözlem','Kontrol, çalışma ve denetim bağı']],
+  ['actions',1145,650,'Düzeltici faaliyet',['Bulgunun giderilmesi ve takibi','Sorumlu, termin, etkinlik']]
  ];
- const svg='<svg viewBox="0 0 1222 540" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'+
- '<defs><filter id="nodeShadow"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#051729" flood-opacity=".35"/></filter>'+
- '<marker id="headArrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">'+
- '<path d="M0 0 L8 3 L0 6 Z" fill="#70c6d8"/></marker></defs>'+
- '<text x="27" y="43" fill="#fff" font-size="28" font-weight="750">KS GRC • Mantıksal Mimari</text>'+
- '<text x="27" y="69" fill="#b6cde0" font-size="13">Sürekli süreç kontrolü, kanıt ve denetim izlenebilirliği</text>'+
- nodes.map(n=>'<g filter="url(#nodeShadow)"><rect x="'+n.x+'" y="120" rx="16" width="'+n.w+'" height="250" fill="'+n.color+
- '" stroke="#7ea7c0"/></g><text x="'+(n.x+n.w/2)+'" y="157" fill="#fff" text-anchor="middle" font-weight="750" font-size="16">'+
- esc(n.title)+'</text>'+n.items.map((item,i)=>'<text x="'+(n.x+n.w/2)+'" y="'+(205+i*32)+
- '" text-anchor="middle" fill="#d7e6f5" font-size="13">'+esc(item)+'</text>').join('')).join('')+
- nodes.slice(0,-1).map((n,i)=>{
-  const x1=n.x+n.w+5,x2=nodes[i+1].x-8;
-  return '<path d="M'+x1+' 249 L'+x2+' 249" stroke="#70c6d8" stroke-width="3" marker-end="url(#headArrow)"/>';
- }).join('')+
- '<rect x="26" y="421" width="1170" height="85" rx="15" fill="#081c30" stroke="#3c6886"/>'+
- '<text x="46" y="447" fill="#add7e7" font-size="12" font-weight="700">ALTIN KONTROL VE DENETİM ZİNCİRİ</text>'+
- ['Gereklilik','Kontrol hedefi','Kontrol','Kanıt','Test','Bulgu','Düzeltici faaliyet'].map((txt,i)=>
- '<text x="'+(114+i*164)+'" y="483" fill="#f1f9ff" font-size="12" font-weight="650" text-anchor="middle">'+txt+'</text>'+
- (i<6?'<text x="'+(196+i*164)+'" y="483" fill="#5fc4d6" font-size="20" text-anchor="middle">→</text>':'')).join('')+
- '</svg>';
- $('content').innerHTML='<div class="notice"><b>Entegrasyon sınırı:</b> KS GRC, ServiceNow ve Dynamics ile doğrudan bağlantı kurmaz. MCP uygulaması kontrol tarifini okur, ilgili sistemi sorgular ve sonucu API üzerinden GRC’ye yazar.</div>'+
- '<div class="architecture" role="img" aria-label="KS GRC veri akışı mimari şeması">'+svg+'</div>'+
- '<div class="arch-cards">'+[
- ['Bağımsızlık','KS GRC veritabanı, kanıtları ve Docker yaşam döngüsü NILES’tan ayrıdır.'],
- ['Çoktan çoğa ilişki','Bir kontrol birden fazla standart maddesi, süreç ve kontrol hedefini kapsar.'],
- ['Denetim izi','Her kontrol çalışmasındaki ilişkiler saklanır; güncel eşleştirme geçmişi bozmaz.'],
- ['Kanıt zinciri','Kanıt dosyaları sürümlenir, SHA-256 ile doğrulanır, denetime ve kontrollere bağlanır.'],
- ['Uyumluluk','Tamamlanma, başarılı test ve madde kapsaması farklı oranlar olarak gösterilir.'],
- ['Gelişime açık','Risk, talimat, bulgu ve DÖF üzerine iş akışı ve ayrıntılı rol yetkileri eklenebilir.']
- ].map(([t,d])=>'<div class="arch-card"><strong>'+t+'</strong>'+d+'</div>').join('')+'</div>';
+ const node=([route,x,y,title,lines])=>'<g class="map-node" data-map-route="'+route+'" tabindex="0" role="link" aria-label="'+esc(title+' kayıtlarını aç')+'">'+
+ '<rect x="'+x+'" y="'+y+'" width="245" height="105" rx="14" fill="#fff" stroke="#b8cce2"/>'+
+ '<rect x="'+x+'" y="'+y+'" width="245" height="6" rx="3" fill="'+(['controls','executions'].includes(route)?'#2667db':'#168c86')+'"/>'+
+ '<text x="'+(x+17)+'" y="'+(y+35)+'" font-size="19" font-weight="700" fill="#173755">'+esc(title)+'</text>'+
+ lines.map((line,i)=>'<text x="'+(x+17)+'" y="'+(y+61+19*i)+'" font-size="13" fill="#536b84">'+esc(line)+'</text>').join('')+'</g>';
+ const label=(x,y,text)=>'<text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#3c5d7a" stroke="#f8fbff" stroke-width="6" paint-order="stroke" stroke-linejoin="round">'+esc(text)+'</text>';
+ const edge=(d,x,y,text,derived=false)=>'<path d="'+d+'" fill="none" stroke="'+(derived?'#8b93a2':'#6686a9')+'" stroke-width="2"'+(derived?' stroke-dasharray="6 5"':'')+' marker-end="url(#mapArrow)"/>'+label(x,y,text);
+ let svg='<svg xmlns="http://www.w3.org/2000/svg" id="relationshipMap" viewBox="0 0 1440 1040" role="img" aria-labelledby="mapTitle mapDescription" style="font-family:system-ui,Segoe UI,Arial,sans-serif">'+
+ '<title id="mapTitle">KS GRC kayıt ilişki haritası</title><desc id="mapDescription">Standart, madde, hedef, süreç, kontrol, denetim, çalışma, kanıt, bulgu ve düzeltici faaliyet ilişkileri. Düz çizgi doğrudan ilişki; kesikli çizgi kontroller üzerinden türetilen bağdır. Kanıtın ek doğrudan ilişkileri altta tekrar gösterilmiştir.</desc>'+
+ '<defs><marker id="mapArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#6686a9"/></marker></defs>'+
+ '<rect width="1440" height="1040" fill="#f8fbff" rx="16"/>'+
+ '<text x="50" y="44" font-size="25" font-weight="750" fill="#163653">KS GRC • Kayıtların birbirine bağlantısı</text>'+
+ '<text x="50" y="72" font-size="14" fill="#60778e">1:N = birden çoğa · M:N = çoktan çoğa · Kesikli çizgi = türetilmiş ilişki, doğrudan kayıt bağı değil</text>';
+ svg+=edge('M295 152 H415',355,132,'1:N · içerir');
+ svg+=edge('M660 152 H780',720,130,'kontrol üzerinden',true);
+ svg+=edge('M535 205 V370',550,245,'M:N · karşılar');
+ svg+=edge('M900 205 V270 H610 V370',765,258,'M:N · hedefi uygular');
+ svg+=edge('M1267 205 V315 H650 V370',1050,303,'M:N · süreçte uygulanır');
+ svg+=edge('M172 370 V278 H450 V205',315,265,'M:N · denetim kapsamı');
+ svg+=edge('M660 422 H780',720,402,'1:N · test edilir');
+ svg+=edge('M1145 422 H1025',1085,402,'M:N · destekler');
+ svg+=edge('M245 475 V535 H830 V475',485,523,'1:N · denetimdeki çalışmalar');
+ svg+=edge('M945 475 V650',1030,568,'0:N · sonuçtan bulgu');
+ svg+=edge('M100 475 V595 H730 V700 H780',415,583,'1:N · denetime ait bulgular');
+ svg+=edge('M295 700 H350 V450 H415',345,632,'M:N · kaynak');
+ svg+=edge('M1025 702 H1145',1085,682,'1:N · giderilir');
+ svg+=nodes.map(node).join('');
+ svg+='<rect x="415" y="650" width="285" height="105" rx="12" fill="#eaf2ff"/>'+
+ '<text x="431" y="676" font-size="14" font-weight="700" fill="#254e78">Geçmişi koruyan kayıt</text>'+
+ ['Çalışma, o andaki kontrol tanımını ve','bağlantıları; kanıtın sürüm / hash’ini','saklar. Güncel tanım geçmişi değiştirmez.'].map((t,i)=>
+ '<text x="431" y="'+(699+18*i)+'" font-size="12" fill="#3d6187">'+t+'</text>').join('');
+ svg+='<text x="50" y="805" font-size="13" fill="#536b84">Kontrol çalışması denetim dışında da yapılabilir. Başarısız sonuç otomatik bir bulgu oluşturur; sonraki başarı eski bulguyu kapatmaz.</text>'+
+ '<text x="50" y="848" font-size="15" font-weight="700" fill="#173755">KANITIN EK DOĞRUDAN BAĞLANTILARI</text>'+
+ '<text x="50" y="871" font-size="12" fill="#64748b">Aşağıdaki kutular üstteki aynı kayıt türlerini temsil eder; ikinci bir veri modeli değildir.</text>';
+ svg+='<g><rect x="50" y="902" width="205" height="60" rx="12" fill="#e2f7f0" stroke="#9fd5c8"/><text x="152" y="938" text-anchor="middle" font-size="17" font-weight="700" fill="#175e55">Kanıt</text></g>';
+ svg+=edge('M255 932 H310 V889 H1260',305,918,'M:N');
+ [['audits','Denetim',415],['controls','Kontrol',665],['clauses','Madde',915],['processes','Süreç',1165]].forEach(([route,title,x])=>{
+  svg+='<path d="M'+(x+95)+' 889 V902" stroke="#6686a9" stroke-width="2" marker-end="url(#mapArrow)"/>'+
+  '<g class="map-node" data-map-route="'+route+'" tabindex="0" role="link" aria-label="'+title+' kayıtlarını aç"><rect x="'+x+'" y="902" width="190" height="60" rx="12" fill="#fff" stroke="#b8cce2"/>'+label(x+95,938,title)+'</g>';
+ });
+ svg+='<text x="50" y="1005" font-size="13" fill="#536b84">Kanıt bağlantısı tek başına uygunluk kararı değildir. Dış MCP uygulaması kaynak sistemleri sorgular; bu uygulamaya kanıt ve sonuç yazar.</text></svg>';
+ return svg;
+}
+function architecturePage(){
+ $('pageSub').textContent='GRC kayıt türleri, doğrudan ilişkiler ve kontrol üzerinden türetilen bağlantılar';
+ $('content').innerHTML='<div class="panel"><div class="panel-title"><h2>GRC ilişki haritası</h2><span class="pill">Gerçek veri modeli</span></div>'+
+ '<div class="map-controls"><button class="btn secondary small" id="mapFit">Sığdır</button><button class="btn secondary small" id="mapZoomIn" aria-label="Haritayı yakınlaştır">+ Yakınlaştır</button>'+
+ '<button class="btn secondary small" id="mapZoomOut" aria-label="Haritayı uzaklaştır">− Uzaklaştır</button><button class="btn secondary small" id="mapExport">SVG indir</button><span id="mapScale" class="map-note"></span></div>'+
+ '<div class="map-viewport" id="mapViewport">'+relationshipMapSVG()+'</div>'+
+ '<p class="map-note">Kutulara tıklayarak ilgili listeye geçebilirsiniz. Kontrol hedefinin madde ve süreç bağları, bağlı kontroller üzerinden türetilir. Denetim bulguları ile aynı kontrollerin diğer açık bulguları ayrı tutulur.</p></div>';
+ let zoom=1;
+ const resize=()=>{const width=$('mapViewport').clientWidth;$('relationshipMap').style.width=Math.round(width*zoom)+'px';$('mapScale').textContent=Math.round(zoom*100)+'%';};
+ $('mapFit').onclick=()=>{zoom=1;resize()};$('mapZoomIn').onclick=()=>{zoom=Math.min(3,zoom+0.25);resize()};$('mapZoomOut').onclick=()=>{zoom=Math.max(0.5,zoom-0.25);resize()};
+ $('mapExport').onclick=()=>{
+  const svg=$('relationshipMap').cloneNode(true);svg.removeAttribute('id');svg.style.width='1440px';svg.setAttribute('width','1440');svg.setAttribute('height','1040');
+  const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='ks-grc-iliski-haritasi.svg';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+ };
+ $('content').querySelectorAll('[data-map-route]').forEach(node=>{
+  node.onclick=()=>navigate(node.dataset.mapRoute);node.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();navigate(node.dataset.mapRoute)}};
+ });
+ // ResizeObserver is view-scoped and detached when navigation removes the viewport.
+ const viewport=$('mapViewport'),observer=new ResizeObserver(()=>{if(viewport.isConnected)resize();else observer.disconnect()});STATE.mapObserver=observer;observer.observe(viewport);resize();
  actions([['Uyumluluk panosu',()=>navigate('compliance')],['Kontrol kataloğu',()=>navigate('controls'),'secondary']]);
 }
+
 async function adminPage(){
  const data=await api('admin/summary');
  const users=data.users||[];
@@ -647,6 +806,7 @@ function userForm(){
 }
 async function start(){
  try{
+  setupDetailResize();setupRelatedNavigation();
   STATE.meta=await api('metadata');
   const user=await api('me');$('identity').textContent='Oturum • '+(user.username||'GRC');
   $('signout').onclick=async()=>{try{await api('logout',{method:'POST',body:'{}'});location.assign('/login')}
