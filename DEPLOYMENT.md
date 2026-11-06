@@ -1,5 +1,7 @@
 # KS GRC — bağımsız dağıtım ve taşıma
 
+Şirket kurulumu [kurumsal dağıtım rehberinde](enterprise/README.md) yer alır. Aşağıdaki adımlar mevcut pilot içindir.
+
 ## İzolasyon
 
 Tek uygulama dizini `/opt/control-grc`, Compose projesi `control-grc`, ayrı `control_data` volume. NILES dizini, ağları, veritabanı ve container yaşam döngüsü değiştirilmez. Uygulama portu `127.0.0.1:18080`; doğrudan public HTTP açılmaz. İlk erişim ayrı Cloudflare geçici HTTPS tünelidir. Güncel URL başarılı dağıtım işinin özetinde bulunur; tünel yeniden oluşturulursa değişebilir.

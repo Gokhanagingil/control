@@ -8,12 +8,13 @@ import hashlib
 import io
 import json
 import mimetypes
+import risk_management
 import os
 from pathlib import Path
 import re
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from urllib.parse import parse_qs, urlparse
 from zipfile import ZipFile, BadZipFile
 
@@ -86,6 +87,7 @@ FIELD_LABELS = {
     "description":"Açıklama", "version":"Sürüm", "standard_id":"Standart",
     "parent_id":"Üst madde", "owner":"Sorumlu", "created_at":"Oluşturulma",
     "updated_at":"Güncellenme", "auditors":"Denetçiler", "auditees":"Denetlenenler",
+    "audit_objective":"Denetim amacı","conclusion":"Denetim sonucu","revision":"Kayıt sürümü",
     "scope":"Kapsam", "planned_start":"Planlanan başlangıç","planned_end":"Planlanan bitiş",
     "actual_start":"Gerçekleşen başlangıç","actual_end":"Gerçekleşen bitiş",
     "status":"Durum","execution_mode":"Uygulama şekli","nature":"Kontrol yaklaşımı",
@@ -102,13 +104,23 @@ FIELD_LABELS = {
     "resolution":"Çözüm açıklaması","closed_at":"Kapanış zamanı",
     "criticality":"Kritiklik","method_type":"Kontrol test yöntemi",
 }
+SCHEMA["risk_catalog"]=risk_management.CATALOG_FIELDS
+SCHEMA["risks"].update(risk_management.REGISTER_FIELDS)
+SCHEMA["actions"]["risk_id"]="INTEGER REFERENCES risks(id)"
+NEW_LABELS["risk_catalog"]="Risk Kataloğu"
+CHOICES["risk_catalog"]={"category":CHOICES["risks"]["category"]}
+CHOICES["risks"]["response_strategy"]=risk_management.STRATEGIES
+FIELD_LABELS.update({"inherent_score":"İçsel risk","residual_score":"Son artık risk","catalog_id":"Katalog şablonu","entity_name":"Etkilenen varlık / hizmet","cause":"Neden",
+    "risk_event":"Risk olayı","consequence":"İş etkisi","review_date":"Gözden geçirme tarihi",
+    "response_strategy":"Yanıt stratejisi","appetite":"Risk iştahı eşiği (1–25)","risk_id":"İlgili risk"})
 EVIDENCE_EXT = {".pdf",".png",".jpg",".jpeg",".webp",".tif",".tiff",".txt",".csv",".json",".jsonl",".log",
                 ".xlsx",".docx",".pptx",".zip",".eml",".msg",".xml",".md"}
+FILE_METADATA = {"hash_sha256","file_size","file_name","mime_type"}
 MAX_FILE = 20 * 1024 * 1024
 MAX_BODY = 29 * 1024 * 1024
 SAFE_NAME = re.compile(r"^[^/\\\x00-\x1f]{1,160}$")
 API_LIMIT = 5000
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def now():
@@ -120,6 +132,8 @@ def setup(db):
         columns = ", ".join(f"{key} {val}" for key,val in fields.items())
         db.execute(f"CREATE TABLE IF NOT EXISTS {name} (id INTEGER PRIMARY KEY AUTOINCREMENT, {columns})")
     migrations = {
+        "risks":risk_management.REGISTER_FIELDS, "actions":{"risk_id":"INTEGER REFERENCES risks(id)"},
+        "audits":{"audit_objective":"TEXT","conclusion":"TEXT","revision":"INTEGER NOT NULL DEFAULT 0"},
         "controls":{"criticality":"TEXT NOT NULL DEFAULT 'medium'",
                     "method_type":"TEXT NOT NULL DEFAULT 'query'"},
         "evidence":{"file_name":"TEXT","file_size":"INTEGER","mime_type":"TEXT",
@@ -134,6 +148,7 @@ def setup(db):
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
     # Save latest choices into the common table model for existing CRUD routes.
     import app
+    app.TABLES["audits"].update({"audit_objective":"TEXT","conclusion":"TEXT"})
     app.TABLES["controls"].update(migrations["controls"])
     app.TABLES["evidence"].update(migrations["evidence"])
     app.PATCHABLE["controls"].update(migrations["controls"])
@@ -180,7 +195,29 @@ def setup(db):
     db.execute("CREATE INDEX IF NOT EXISTS evidence_files_eid ON evidence_files(evidence_id,version)")
     db.execute("CREATE INDEX IF NOT EXISTS evidence_audits_audit ON evidence_audits(audit_id)")
     db.execute("CREATE INDEX IF NOT EXISTS actions_finding ON actions(finding_id)")
-    db.execute("PRAGMA user_version=3")
+    db.execute("""CREATE TABLE IF NOT EXISTS audit_standards (
+        audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+        standard_id INTEGER NOT NULL REFERENCES standards(id), PRIMARY KEY (audit_id,standard_id))""")
+    # Existing explicit clauses are the only reliable basis for migrating the old scope.
+    db.execute("""INSERT OR IGNORE INTO audit_standards
+        SELECT DISTINCT ac.audit_id,cl.standard_id FROM audit_clauses ac JOIN clauses cl ON cl.id=ac.clause_id""")
+    db.execute("""CREATE TRIGGER IF NOT EXISTS audit_clause_parent AFTER INSERT ON audit_clauses
+        BEGIN INSERT OR IGNORE INTO audit_standards(audit_id,standard_id)
+            SELECT NEW.audit_id,standard_id FROM clauses WHERE id=NEW.clause_id; END""")
+    db.execute("""CREATE TABLE IF NOT EXISTS audit_plan_snapshots (
+        audit_id INTEGER PRIMARY KEY REFERENCES audits(id) ON DELETE CASCADE, captured_at TEXT NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS audit_plan_links (
+        audit_id INTEGER NOT NULL REFERENCES audit_plan_snapshots(audit_id) ON DELETE CASCADE,
+        clause_id INTEGER NOT NULL REFERENCES clauses(id), control_id INTEGER NOT NULL REFERENCES controls(id),
+        PRIMARY KEY(audit_id,clause_id,control_id))""")
+    db.execute("""CREATE VIEW IF NOT EXISTS audit_planned_mappings AS
+        SELECT * FROM audit_plan_links UNION ALL
+        SELECT ac.audit_id,ac.clause_id,cc.control_id FROM audit_clauses ac
+        JOIN control_clauses cc ON cc.clause_id=ac.clause_id
+        JOIN controls c ON c.id=cc.control_id AND c.active=1
+        WHERE NOT EXISTS (SELECT 1 FROM audit_plan_snapshots s WHERE s.audit_id=ac.audit_id)""")
+    risk_management.setup(db)
+    db.execute("PRAGMA user_version=4")
 
 
 def log(db, handler, method, table, rid=None, description=""):
@@ -218,12 +255,13 @@ def validate_choice(table, data):
 
 def validate_record(table, data):
     validate_choice(table,data)
-    if table == "risks":
+    if table in ("risks","risk_catalog"):
+        risk_management.validate(table,data)
         for field in ("likelihood","impact"):
             value = data.get(field, 3)
             if type(value) is not int or value not in range(1,6):
                 raise ValueError("Olasılık ve etki 1–5 arasında olmalı")
-    if table in ("risks","actions","documents"):
+    if table in ("risk_catalog","risks","actions","documents"):
         code = data.get("code","")
         if not isinstance(code,str) or not code.strip() or len(code)>90:
             raise ValueError("Geçerli kod gerekli")
@@ -430,31 +468,29 @@ def compliance(db, query):
     standard=filt("standard_id")
     process=filt("process_id")
     audit=filt("audit_id")
-    where=["c.active=1"]
-    args=[]
-    if standard:
-        where.append("""EXISTS (SELECT 1 FROM control_clauses cc
-            JOIN clauses cl ON cl.id=cc.clause_id WHERE cl.standard_id=? AND cc.control_id=c.id)""")
-        args.append(standard)
-    if process:
-        where.append("EXISTS (SELECT 1 FROM control_processes p WHERE p.process_id=? AND p.control_id=c.id)")
-        args.append(process)
+    params={"audit":audit,"standard":standard,"process":process}
+    # Match standard AND audit on the same clause. Two independent EXISTS clauses
+    # would count a cross-mapped control even when the relevant clause is excluded.
+    where = ["EXISTS (SELECT 1 FROM control_processes p WHERE p.control_id=c.id AND p.process_id=:process)"
+             ] if process else []
     if audit:
-        where.append("""(EXISTS (
-          SELECT 1 FROM control_clauses cc JOIN audit_clauses ac
-          ON cc.clause_id=ac.clause_id WHERE ac.audit_id=? AND cc.control_id=c.id)
-          OR EXISTS (SELECT 1 FROM executions xe WHERE xe.audit_id=? AND xe.control_id=c.id))""")
-        args.extend([audit,audit])
-    candidates=rows(db,"SELECT c.id,c.code,c.name,c.frequency FROM controls c WHERE "+" AND ".join(where)+" ORDER BY c.code",args)
+        where.append("""EXISTS (SELECT 1 FROM audit_planned_mappings pm JOIN clauses cl ON cl.id=pm.clause_id
+            WHERE pm.audit_id=:audit AND pm.control_id=c.id AND (:standard IS NULL OR cl.standard_id=:standard))""")
+    else:
+        where.append("c.active=1")
+        if standard:
+            where.append("""EXISTS (SELECT 1 FROM control_clauses cc JOIN clauses cl ON cl.id=cc.clause_id
+                WHERE cc.control_id=c.id AND cl.standard_id=:standard)""")
+    candidates=rows(db,"SELECT c.id,c.code,c.name,c.frequency FROM controls c WHERE "+" AND ".join(where)+" ORDER BY c.code",params)
     results=[]
     counts={"pass":0,"fail":0,"inconclusive":0,"not_applicable":0,"untested":0}
     for c in candidates:
         if audit:
             x=db.execute("""SELECT id,status,executed_at,audit_id FROM executions WHERE control_id=? AND audit_id=?
-                    ORDER BY executed_at DESC,id DESC LIMIT 1""",(c["id"],audit)).fetchone()
+                    ORDER BY julianday(executed_at) DESC,id DESC LIMIT 1""",(c["id"],audit)).fetchone()
         else:
             x=db.execute("""SELECT id,status,executed_at,audit_id FROM executions WHERE control_id=?
-                    ORDER BY executed_at DESC,id DESC LIMIT 1""",(c["id"],)).fetchone()
+                    ORDER BY julianday(executed_at) DESC,id DESC LIMIT 1""",(c["id"],)).fetchone()
         status=x["status"] if x else "untested"
         if status not in counts:
             status="inconclusive"
@@ -468,19 +504,20 @@ def compliance(db, query):
     pass_rate=round(100*counts["pass"]/completed,1) if completed else None
     indicative=round(100*counts["pass"]/n,1) if n else None
     clause_count=None; mapped_clauses=None
-    if standard:
-        count=db.execute("SELECT COUNT(*) AS n FROM clauses WHERE standard_id=?",(standard,)).fetchone()["n"]
-        covered=db.execute("""SELECT COUNT(DISTINCT cl.id) AS n FROM clauses cl
-                   JOIN control_clauses cc ON cc.clause_id=cl.id
-                   JOIN controls c ON c.id=cc.control_id
-                   WHERE cl.standard_id=? AND c.active=1""",(standard,)).fetchone()["n"]
-        clause_count=count
-        mapped_clauses=covered
-    elif audit:
-        clause_count=db.execute("SELECT COUNT(*) AS n FROM audit_clauses WHERE audit_id=?",(audit,)).fetchone()["n"]
-        mapped_clauses=db.execute("""SELECT COUNT(DISTINCT ac.clause_id) AS n FROM audit_clauses ac
-                    JOIN control_clauses cc ON cc.clause_id=ac.clause_id JOIN controls c ON c.id=cc.control_id
-                    WHERE ac.audit_id=? AND c.active=1""",(audit,)).fetchone()["n"]
+    if audit or standard:
+        clause_filter = """(:standard IS NULL OR cl.standard_id=:standard)
+            AND (:audit IS NULL OR EXISTS (SELECT 1 FROM audit_clauses ac
+                WHERE ac.audit_id=:audit AND ac.clause_id=cl.id))"""
+        mapped = ("""SELECT pm.control_id FROM audit_planned_mappings pm
+                     WHERE pm.audit_id=:audit AND pm.clause_id=cl.id""" if audit else
+                  """SELECT cc.control_id FROM control_clauses cc JOIN controls c ON c.id=cc.control_id
+                     WHERE cc.clause_id=cl.id AND c.active=1""")
+        if process:
+            mapped += " AND " + ("pm" if audit else "cc") + """.control_id IN (
+                SELECT control_id FROM control_processes WHERE process_id=:process)"""
+        summary = db.execute(f"""SELECT COUNT(*) n, COALESCE(SUM(EXISTS ({mapped})),0) mapped
+            FROM clauses cl WHERE {clause_filter}""",params).fetchone()
+        clause_count,mapped_clauses = summary["n"],summary["mapped"]
     return {"filter":{"standard_id":standard,"process_id":process,"audit_id":audit},
             "total_controls":n,"completed":completed,"pending":n-completed,
             "completion_pct":coverage,"pass_pct":pass_rate,"indicative_pct":indicative,
@@ -507,7 +544,11 @@ def _respond_download(handler,raw,filename,content_type):
 
 
 def _error(handler,exc):
-    if isinstance(exc,(ValueError,sqlite3.IntegrityError,json.JSONDecodeError)):
+    if isinstance(exc,risk_management.ApprovalDenied):
+        handler.respond(403,{"error":str(exc)})
+    elif isinstance(exc,StaleAudit):
+        handler.respond(409,{"error":str(exc)})
+    elif isinstance(exc,(ValueError,sqlite3.IntegrityError,json.JSONDecodeError)):
         handler.respond(400,{"error":str(exc)[:350]})
     else:
         # Avoid leaking filesystem paths, SQL internals and authentication secrets.
@@ -550,6 +591,137 @@ def set_objective_controls(db, oid, ids):
     return objective_context(db,oid)
 
 
+class StaleAudit(ValueError):
+    pass
+
+
+def _audit_ids(values):
+    if not isinstance(values, list) or any(type(i) is not int or i <= 0 for i in values):
+        raise ValueError("Kapsam kimlikleri pozitif tam sayı listesi olmalı")
+    return set(values)
+
+
+def validate_audit_fields(audit):
+    name = audit.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Denetim adı gerekli")
+    for key in ("scope", "audit_objective", "conclusion", "auditors", "auditees"):
+        if audit.get(key) is not None and not isinstance(audit[key], str):
+            raise ValueError(f"{FIELD_LABELS[key]} metin olmalı")
+    status = audit.get("status", "planned")
+    if not isinstance(status,str) or status not in CHOICES["audits"]["status"]:
+        raise ValueError("Denetim durumu geçersiz")
+    for key in ("planned_start","planned_end","actual_start","actual_end"):
+        raw = audit.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            if date.fromisoformat(raw).isoformat() != raw:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(f"{FIELD_LABELS[key]} geçerli bir YYYY-AA-GG tarihi olmalı") from None
+    for start, end in (("planned_start","planned_end"),("actual_start","actual_end")):
+        if audit.get(start) and audit.get(end) and audit[end] < audit[start]:
+            raise ValueError("Bitiş tarihi başlangıçtan önce olamaz")
+    if audit.get("actual_end") and not audit.get("actual_start"):
+        raise ValueError("Gerçekleşen bitiş için gerçekleşen başlangıç gerekli")
+    if status == "planned" and audit.get("actual_start"):
+        raise ValueError("Planlanan denetimde gerçekleşen tarih bulunamaz")
+    if status == "in_progress" and audit.get("actual_end"):
+        raise ValueError("Devam eden denetimde gerçekleşen bitiş bulunamaz")
+    if status in ("in_progress","completed","closed") and not audit.get("actual_start"):
+        raise ValueError("Bu durum için gerçekleşen başlangıç gerekli")
+    if status in ("completed","closed") and not audit.get("actual_end"):
+        raise ValueError("Tamamlanan denetimde gerçekleşen bitiş gerekli")
+
+
+def validate_audit_coverage(audit, standards, represented):
+    if audit["status"] in ("in_progress","completed","closed"):
+        if standards - represented:
+            raise ValueError("Her standart için en az bir kapsam maddesi seçin")
+        if not standards and not (audit.get("scope") or "").strip():
+            raise ValueError("Standartsız denetimde iç kapsamı açıklayın")
+
+
+def capture_audit_plan(db, aid):
+    db.execute("INSERT INTO audit_plan_snapshots VALUES(?,?)", (aid,now()))
+    db.execute("""INSERT INTO audit_plan_links
+        SELECT ac.audit_id,ac.clause_id,cc.control_id FROM audit_clauses ac JOIN control_clauses cc
+        ON cc.clause_id=ac.clause_id JOIN controls c ON c.id=cc.control_id AND c.active=1
+        WHERE ac.audit_id=?""", (aid,))
+
+
+def save_audit(db, data, handler, aid=None, from_standard=False):
+    """Validate the full proposal before replacing the audit and its selected scope."""
+    import app
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    previous = app.audit_scope(db,aid) if aid is not None else None
+    if aid is not None and previous is None:
+        return None
+    fields = app.TABLES["audits"]
+    if not data or set(data) - set(fields) - {"standard_ids","clause_ids","expected_revision"} - ({"standard_id"} if from_standard else set()):
+        raise ValueError("Geçersiz denetim alanları")
+    old_st = {s["id"] for s in previous["standards"]} if previous else set()
+    old_cl = {c["id"] for c in previous["clauses"]} if previous else set()
+    standards, clauses = old_st, old_cl
+    if from_standard:
+        standards = _audit_ids([data.get("standard_id")])
+        clauses = {r[0] for r in db.execute("SELECT id FROM clauses WHERE standard_id=?", (data["standard_id"],))}
+    elif "standard_ids" in data or "clause_ids" in data:
+        clauses = _audit_ids(data.get("clause_ids"))
+        if "standard_ids" in data:
+            standards = _audit_ids(data["standard_ids"])
+        elif previous is None:
+            # Original create API accepts clause_ids without standard_ids.
+            standards = {r[0] for r in db.execute(
+                "SELECT DISTINCT standard_id FROM clauses WHERE id IN (SELECT value FROM json_each(?))",
+                (json.dumps(sorted(clauses)),))}
+        else:
+            raise ValueError("Kapsam güncellemesinde standart ve madde listeleri birlikte gerekli")
+    if previous and (("standard_ids" in data or "clause_ids" in data) or "expected_revision" in data):
+        revision = data.get("expected_revision")
+        if type(revision) is not int or revision != previous["revision"]:
+            raise StaleAudit("Denetim değişmiş olabilir. Kaydı yenileyip tekrar deneyin.")
+    updates = {key:value for key,value in data.items() if key in fields}
+    merged = {"status":"planned", **(previous or {}), **updates}
+    validate_audit_fields(merged)
+    if previous and previous["status"] in ("completed","closed","cancelled"):
+        if merged["status"] != previous["status"] and (previous["status"],merged["status"]) != ("completed","closed"):
+            raise ValueError("Sonuçlandırılmış denetim tekrar açılamaz")
+        if (old_st,old_cl) != (standards,clauses) or merged.get("scope") != previous["scope"]:
+            raise ValueError("Sonuçlandırılmış denetimin kapsamı değiştirilemez")
+    if standards != {r[0] for r in db.execute(
+            "SELECT id FROM standards WHERE id IN (SELECT value FROM json_each(?))",
+            (json.dumps(sorted(standards)),))}:
+        raise ValueError("Seçilen standart bulunamadı")
+    members = dict(db.execute(
+        "SELECT id,standard_id FROM clauses WHERE id IN (SELECT value FROM json_each(?))",
+        (json.dumps(sorted(clauses)),)))
+    if set(members) != clauses or not set(members.values()) <= standards:
+        raise ValueError("Her madde seçilen standartlardan birine ait olmalı")
+    validate_audit_coverage(merged, standards, set(members.values()))
+    if previous:
+        setters = [f"{key}=?" for key in updates] + ["revision=revision+1"]
+        db.execute("UPDATE audits SET " + ", ".join(setters) + " WHERE id=?", [*updates.values(), aid])
+    else:
+        aid = app.insert(db, "audits", updates)
+    if (standards,clauses) != (old_st,old_cl):
+        db.execute("DELETE FROM audit_clauses WHERE audit_id=?", (aid,))
+        db.execute("DELETE FROM audit_standards WHERE audit_id=?", (aid,))
+        db.executemany("INSERT INTO audit_standards VALUES(?,?)", ((aid,i) for i in sorted(standards)))
+        db.executemany("INSERT INTO audit_clauses VALUES(?,?)", ((aid,i) for i in sorted(clauses)))
+    if merged["status"] in ("completed","closed","cancelled") and (
+            not previous or previous["status"] not in ("completed","closed","cancelled")):
+        # Historical closed rows have no reliable closure snapshot; leave those explicitly unknown.
+        capture_audit_plan(db,aid)
+    delta = {"standart_eklenen":sorted(standards-old_st), "standart_çıkarılan":sorted(old_st-standards),
+             "madde_eklenen":sorted(clauses-old_cl), "madde_çıkarılan":sorted(old_cl-clauses)}
+    log(db, handler, "UPDATE" if previous else "CREATE", "audits", aid,
+        json.dumps(delta, ensure_ascii=False, separators=(",",":")))
+    return app.audit_scope(db,aid)
+
+
 def audit_context(db, aid):
     """Keep this audit's findings distinct from other open findings in its control scope.
 
@@ -561,10 +733,14 @@ def audit_context(db, aid):
     result=app.audit_scope(db,aid)
     if result is None:
         return None
-    scope_sql="""SELECT cc.control_id FROM control_clauses cc
-        JOIN audit_clauses ac ON ac.clause_id=cc.clause_id WHERE ac.audit_id=:aid
+    scope_sql="""SELECT control_id FROM audit_planned_mappings WHERE audit_id=:aid
         UNION SELECT control_id FROM executions WHERE audit_id=:aid"""
     result["controls"]=rows(db,f"SELECT * FROM controls WHERE id IN ({scope_sql}) ORDER BY code,id",{"aid":aid})
+    planned = {r[0] for r in db.execute("SELECT control_id FROM audit_planned_mappings WHERE audit_id=?", (aid,))}
+    result["planned_controls"] = [c for c in result["controls"] if c["id"] in planned]
+    result["tested_outside_scope"] = [c for c in result["controls"] if c["id"] not in planned]
+    snapshot=db.execute("SELECT captured_at FROM audit_plan_snapshots WHERE audit_id=?", (aid,)).fetchone()
+    result["plan_captured_at"] = snapshot[0] if snapshot else None
     finding_sql="""SELECT f.*,COALESCE(f.audit_id,x.audit_id) AS origin_audit_id,
         COALESCE(f.control_id,x.control_id) AS effective_control_id,
         c.code AS control_code,c.name AS control_name,a.name AS origin_audit_name,
@@ -598,6 +774,11 @@ def get(handler):
                 result=(objective_context if parts[1]=="objectives" else audit_context)(db,int(parts[2]))
                 return handler.respond(200 if result is not None else 404,
                     result if result is not None else {"error":"Kayıt bulunamadı"}) or True
+            if path.path == "/api/audits/scope-catalog":
+                return handler.respond(200, {
+                    "standards":rows(db,"SELECT id,code,name,version FROM standards ORDER BY code,id"),
+                    "clauses":rows(db,"SELECT id,standard_id,parent_id,code,title FROM clauses ORDER BY standard_id,code,id"),
+                }) or True
             if path.path=="/api/metadata":
                 return handler.respond(200,{"labels":{**app.LABELS,**NEW_LABELS},
                     "fields":FIELD_LABELS,"choices":CHOICES}) or True
@@ -634,6 +815,15 @@ def get(handler):
                 raw,filename,_=result
                 _respond_download(handler,raw,filename,"application/octet-stream")
                 return True
+            if len(parts)==4 and parts[:2]==["api","risks"] and parts[3]=="context":
+                result=risk_management.context(db,int(parts[2]))
+                return handler.respond(200 if result else 404,result or {"error":"Risk bulunamadı"}) or True
+            if parts==["api","risks"]:
+                return handler.respond(200,rows(db,"""SELECT r.*, r.likelihood*r.impact AS inherent_score,
+                    a.residual AS residual_score, a.appetite AS assessed_appetite, a.assessed_at
+                    FROM risks r LEFT JOIN risk_assessments a ON a.id=(
+                        SELECT id FROM risk_assessments WHERE risk_id=r.id ORDER BY id DESC LIMIT 1)
+                    ORDER BY r.id DESC LIMIT 1000""")) or True
             if len(parts)==2 and parts[:1]==["api"] and parts[1] in SCHEMA:
                 table=parts[1]
                 return handler.respond(200,rows(db,f"SELECT * FROM {table} ORDER BY id DESC LIMIT 1000")) or True
@@ -673,6 +863,20 @@ def post(handler):
     path=urlparse(handler.path)
     parts=path.path.strip("/").split("/")
     try:
+        if parts in (["api","audits"],["api","audits","from-standard"]):
+            data = json_body(handler)
+            with app.connect() as db:
+                result = save_audit(db, data, handler, from_standard=len(parts)==3)
+                db.commit()
+            return handler.respond(201, {"id":result["id"], "audit_id":result["id"],
+                "clause_count":len(result["clauses"]), "revision":result["revision"]}) or True
+        if len(parts)==4 and parts[:2]==["api","risks"] and parts[3]=="assessments":
+            data=json_body(handler);rid=int(parts[2])
+            with app.connect() as db:
+                result=risk_management.assess(db,rid,data,handler.current_user["username"],now())
+                log(db,handler,"ASSESS","risks",rid)
+                db.commit()
+            return handler.respond(201,result) or True
         if len(parts)==4 and parts[:2]==["api","objectives"] and parts[3]=="controls":
             if getattr(handler,"auth_type",None)!="session":
                 return handler.respond(403,{"error":"Kullanıcı oturumu gerekli"}) or True
@@ -689,8 +893,9 @@ def post(handler):
             table=parts[1];data=json_body(handler)
             validate_record(table,data)
             with app.connect() as db:
+                if table=="risks":risk_management.decision(db,None,{},data)
                 fields={k:v for k,v in data.items() if k in SCHEMA[table]}
-                fields.setdefault("created_at",now())
+                if "created_at" in SCHEMA[table]: fields.setdefault("created_at",now())
                 if db.execute(f"SELECT id FROM {table} WHERE code=?",(fields["code"],)).fetchone():
                     raise ValueError("Bu kod daha önce kullanılmış")
                 rid=app.insert(db,table,fields)
@@ -733,6 +938,8 @@ def post(handler):
             return True
         if len(parts)==3 and parts==["api","evidence","upload"]:
             data=json_body(handler,MAX_BODY)
+            if handler.auth_type=="api_key" and data.get("source")!="mcp":
+                return handler.respond(403,{"error":"Makine anahtarı yalnız MCP kaynaklı kanıt yükleyebilir"}) or True
             with app.connect() as db:
                 result=save_file(db,data)
                 log(db,handler,"UPLOAD","evidence",result["id"],result["file_name"])
@@ -742,6 +949,9 @@ def post(handler):
         if len(parts)==4 and parts[:2]==["api","evidence"] and parts[3]=="versions":
             eid=int(parts[2]);data=json_body(handler,MAX_BODY)
             with app.connect() as db:
+                if handler.auth_type=="api_key":
+                    if not db.execute("SELECT id FROM evidence WHERE id=? AND source='mcp'",(eid,)).fetchone():
+                        return handler.respond(403,{"error":"Yalnız MCP kaynaklı kanıta sürüm eklenebilir"}) or True
                 result=save_file(db,data,eid)
                 log(db,handler,"VERSION","evidence",eid,result["file_name"])
                 db.commit()
@@ -767,6 +977,12 @@ def post(handler):
             if not isinstance(ids,list) or any(type(n)is not int for n in ids):
                 raise ValueError("Kontrol kimlikleri listesi gerekli")
             with app.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                risk=db.execute("SELECT status FROM risks WHERE id=?",(rid,)).fetchone()
+                if not risk:
+                    return handler.respond(404,{"error":"Risk bulunamadı"}) or True
+                if risk["status"] in risk_management.TERMINAL:
+                    raise ValueError("Bağlantıları değiştirmeden önce riski yeniden açın")
                 db.execute("DELETE FROM control_risks WHERE risk_id=?",(rid,))
                 for cid in ids:
                     db.execute("INSERT INTO control_risks(control_id,risk_id) VALUES(?,?)",(cid,rid))
@@ -805,6 +1021,14 @@ def patch(handler):
     import app
     parts=urlparse(handler.path).path.strip("/").split("/")
     try:
+        if len(parts)==3 and parts[:2]==["api","audits"]:
+            data = json_body(handler)
+            with app.connect() as db:
+                result = save_audit(db, data, handler, aid=int(parts[2]))
+                if result is None:
+                    return handler.respond(404,{"error":"Denetim bulunamadı"}) or True
+                db.commit()
+            return handler.respond(200,result) or True
         if len(parts)==4 and parts[:3]==["api","admin","users"]:
             if getattr(handler,"auth_type",None)!="session":
                 return handler.respond(403,{"error":"Yalnızca kullanıcı oturumundan işlem yapılabilir"}) or True
@@ -832,10 +1056,21 @@ def patch(handler):
             return True
         if len(parts)==3 and parts[0]=="api" and parts[1] in SCHEMA:
             table=parts[1];rid=int(parts[2]);data=json_body(handler)
-            if not data or set(data)-set(SCHEMA[table])-{"created_at"}:
+            details = {key:data.pop(key) for key in risk_management.DECISION_INPUT if key in data} if table=="risks" else {}
+            if not data or set(data)-(set(SCHEMA[table])-{"created_at"}):
                 raise ValueError("Geçersiz güncelleme alanları")
-            validate_choice(table,data)
             with app.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                row=db.execute(f"SELECT * FROM {table} WHERE id=?",(rid,)).fetchone()
+                if not row:return handler.respond(404,{"error":"Kayıt bulunamadı"}) or True
+                proposal={**dict(row),**data}
+                validate_record(table,proposal)
+                if table=="risks":
+                    if "catalog_id" in data and data["catalog_id"]!=row["catalog_id"]:
+                        raise ValueError("Riskin kaynak şablonu değiştirilemez")
+                    role = handler.current_user["app_role"] if app.ENTRA else "local-admin"
+                    risk_management.decision(db,rid,dict(row),proposal,details=details,
+                            actor=handler.current_user["username"],role=role,at=now())
                 setters=", ".join(f"{k}=?" for k in data)
                 cursor=db.execute(f"UPDATE {table} SET {setters} WHERE id=?",[*data.values(),rid])
                 if not cursor.rowcount:

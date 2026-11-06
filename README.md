@@ -1,6 +1,8 @@
 # KS GRC
 
-Türkçe, küçük GRC ekibi için denetim–kontrol–kanıt uygulaması. Python 3.12, SQLite ve standart kütüphane; tarayıcı istemcisi ek frontend derleme gerektirmez. ServiceNow veya Dynamics'e doğrudan bağlanmaz. Mevcut MCP uygulaması kaynak sistemleri sorgular ve burada belgelenen REST API'ye sonuç yazar.
+Türkçe, küçük GRC ekibi için denetim–kontrol–kanıt uygulaması. Python 3.12, SQLite ve Entra kimlik doğrulaması için hash ile sabitlenmiş Python paketleri; tarayıcı istemcisi ek frontend derleme gerektirmez. ServiceNow veya Dynamics'e doğrudan bağlanmaz. Mevcut MCP uygulaması kaynak sistemleri sorgular ve burada belgelenen REST API'ye sonuç yazar.
+
+Denetim ve risk modüllerini kullanmak için [iş akışları](docs/DENETIM_VE_RISK.md) sayfasına bakın. Şirket sunucusunda kurulum için [kurumsal dağıtım rehberini](enterprise/README.md) kullanın.
 
 ## Mevcut kapsam
 
@@ -11,7 +13,7 @@ Türkçe, küçük GRC ekibi için denetim–kontrol–kanıt uygulaması. Pytho
 - 20 MiB kanıt yükleme, dosya türü/başlık kontrolleri, SHA-256 doğrulama, sürüm geçmişi; audit/control/clause/process bağları.
 - Kontrol çalışmasının tanım, eşleme ve kullanılan kanıt sürümünün anlık görüntüsü. Eski çalışmalar için bulunmayan geçmiş bilgi uydurulmaz.
 - API yeniden denemelerinde `idempotency_key`: aynı talep aynı sonucu döndürür; farklı içerik aynı anahtarı kullanırsa HTTP 409.
-- Parola özetli yerel kullanıcılar, 12 saatlik HttpOnly oturum, ilk girişte parola değişimi; kullanıcı/rol tabloları. Bu MVP'de oturum açan tüm ekip üyeleri aynı yönetim yetkilerine sahiptir; ADMIN/AUDITOR/VIEWER ayrımı henüz uygulanmaz.
+- Parola özetli yerel kullanıcılar, 12 saatlik HttpOnly oturum, ilk girişte parola değişimi; kullanıcı/rol tabloları. Yerel pilot modeli ile kurumsal Entra giriş/yetki modeli için dağıtım rehberlerine bakın.
 - MCP anahtarı kullanıcı yönetemez, kontrol tanımını değiştiremez veya toplu Excel dışa aktarımı yapamaz. Yalnızca otomatik kontrole MCP kaynaklı sonuç yazar.
 - Çok sayfalı XLSX içe/dışa aktarımı ve CSV madde içe aktarımı.
 
@@ -22,6 +24,7 @@ Kanıt bağlantısı tek başına bir standart maddesini uygun hale getirmez. Uy
 Python 3.12 ile, yalnızca yerel test ortamında:
 
 ```bash
+python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
 export CONTROL_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export CONTROL_UI_USER=grcadmin
 umask 077
@@ -53,4 +56,4 @@ Tarayıcı testi yalnızca geçici sentetik veri tabanında çalışır; gerçek
 Güncel API sözleşmesi: `docs/MCP_CONTRACT_AND_ACCEPTANCE.md`.
 NILES'tan bağımsız dağıtım ve yedek/geri yükleme: `DEPLOYMENT.md`.
 
-Kalıcı adrese geçişte uygulama kodu, SQLite veritabanı, kanıt dosyaları ve güvenli ortam yapılandırması birlikte taşınır. Geçici Cloudflare HTTPS adresi kalıcı alan adı değildir. Uygulama hâlen sınırlı ekip/staging MVP'sidir; antivirüs taraması, kurumsal SSO, WORM saklama, ayrıntılı RBAC ve dış ortam yedek politikası uygulanmış değildir.
+Kalıcı adrese geçişte uygulama kodu, SQLite veritabanı, kanıt dosyaları ve güvenli ortam yapılandırması birlikte taşınır. Geçici Cloudflare HTTPS adresi kalıcı alan adı değildir. Kurumsal profil tek kiracılı Entra oturumu, denetçi ve yönetici rolleri kullanır. Kanıtlarda dosya türü ve bütünlük kontrolü vardır. Kurumun zararlı yazılım taraması, değiştirilemez arşiv ihtiyacı, disk şifreleme ve yedek saklama politikası hedef ortamda ele alınmalıdır.

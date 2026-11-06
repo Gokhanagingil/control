@@ -1,0 +1,114 @@
+name: Enterprise security gates
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Prepare pinned scanners
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/grc-tools" verification/security
+          cd "$RUNNER_TEMP/grc-tools"
+          curl -fsSLo trivy.tgz https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz
+          echo 'bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf  trivy.tgz' | sha256sum -c -
+          tar -xzf trivy.tgz trivy
+          curl -fsSLo gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tgz' | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          echo "$RUNNER_TEMP/grc-tools" >> "$GITHUB_PATH"
+          python -m pip install bandit==1.9.4 pip-audit==2.10.1
+      - name: Scan fetched history for secrets
+        run: gitleaks git --redact=100 --report-format json --report-path verification/security/history.json .
+      - name: Audit locked application dependencies
+        run: pip-audit --no-deps --disable-pip -r requirements.txt -f json -o verification/security/pip-audit.json
+      - name: Inspect application Python
+        run: |
+          bandit -r . -x ./tests,./scripts,./verification -f json -o verification/security/bandit.json --exit-zero
+          python - <<'PY'
+          import json
+          report = json.load(open('verification/security/bandit.json'))
+          if report['errors'] or any(i['issue_severity'] == 'HIGH' or (i['issue_severity'] == 'MEDIUM' and i['issue_confidence'] == 'HIGH') for i in report['results']):
+              raise SystemExit('SAST release threshold failed; inspect the complete report')
+          PY
+      - name: Scan working tree and Dockerfile
+        run: trivy fs --skip-dirs verification --scanners misconfig,secret,vuln --format json --output verification/security/source.json --severity HIGH,CRITICAL --exit-code 1 .
+      - name: Build and scan exact image
+        run: |
+          set -eu
+          docker build -t ks-grc:"$GITHUB_SHA" .
+          docker image inspect --format '{{.Id}}' ks-grc:"$GITHUB_SHA" > verification/security/image.id
+          trivy image --format cyclonedx --output verification/security/sbom.cdx.json ks-grc:"$GITHUB_SHA"
+          trivy image --scanners vuln,secret --format json --output verification/security/image.json ks-grc:"$GITHUB_SHA"
+          python - <<'PY'
+          import json
+          report = json.load(open('verification/security/image.json'))
+          results = report.get('Results', [])
+          if not any(r.get('Class') == 'os-pkgs' for r in results) or not any(r.get('Class') == 'lang-pkgs' for r in results):
+              raise SystemExit('OS or Python inventory missing')
+          if any(v['Severity'] in ('HIGH', 'CRITICAL') for r in results for k in ('Vulnerabilities', 'Secrets') for v in r.get(k, [])):
+              raise SystemExit('High or critical image findings; see image.json')
+          PY
+      - name: Verify corporate service starts and does not expose the password login
+        env:
+          CONTROL_ENTRA_TENANT_ID: aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa
+          CONTROL_ENTRA_CLIENT_ID: bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb
+          CONTROL_ENTRA_REDIRECT_URI: https://grc.example.invalid/auth/entra/callback
+          CONTROL_ENTRA_AUTH_CONTEXT: c1
+        run: |
+          set -eu
+          keydir=$(mktemp -d)
+          trap 'docker compose -f compose.enterprise.yaml down -v; rm -rf "$keydir"' EXIT
+          export CONTROL_ENTRA_SECRET_PATH="$keydir/entra" CONTROL_MCP_SECRET_PATH="$keydir/mcp"
+          openssl rand -hex 32 > "$CONTROL_ENTRA_SECRET_PATH"
+          openssl rand -hex 32 > "$CONTROL_MCP_SECRET_PATH"
+          sudo chown 10001:10001 "$CONTROL_ENTRA_SECRET_PATH" "$CONTROL_MCP_SECRET_PATH"
+          sudo chmod 0400 "$CONTROL_ENTRA_SECRET_PATH" "$CONTROL_MCP_SECRET_PATH"
+          docker compose -f compose.enterprise.yaml config --quiet
+          # Reuse exactly the scanned image via the default Compose project/service tag.
+          docker tag ks-grc:"$GITHUB_SHA" ks-grc-enterprise-app
+          docker compose -f compose.enterprise.yaml up --no-build --wait --wait-timeout 60
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/api/me)" = 401
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:18080/api/login)
+          case "$status" in 403|404|405) ;; *) echo "Password endpoint was not disabled ($status)"; exit 1;; esac
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: security-${{ github.sha }}
+          path: verification/security/
+          retention-days: 14
+  dast:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install hash-locked runtime and verify ZAP distribution
+        run: |
+          set -eu
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 2 -o zap.tgz https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz
+          echo 'efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a  zap.tgz' | sha256sum -c -
+          tar -xzf zap.tgz
+      - name: Run authenticated DAST against disposable loopback instance
+        run: python scripts/security-dast/run.py "$RUNNER_TEMP/ZAP_2.17.0/zap.sh" verification/security/zap-dast.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: dast-${{ github.sha }}
+          path: verification/security/zap-dast.json
+          retention-days: 14

@@ -12,7 +12,7 @@ from collections import OrderedDict
 import xlsx_io
 
 TABLE_ORDER = ("standards", "processes", "objectives", "clauses", "controls",
-               "audits", "evidence", "risks", "actions", "documents",
+               "audits", "evidence", "risk_catalog", "risks", "actions", "documents",
                "executions", "findings")
 SHEETS = {
     "standards":"Standartlar",
@@ -23,6 +23,7 @@ SHEETS = {
     "audits":"Denetimler",
     "evidence":"Kanıtlar",
     "risks":"Riskler",
+    "risk_catalog":"Risk Kataloğu",
     "actions":"Düzeltici Faaliyetler",
     "documents":"Dokümanlar",
     "executions":"Kontrol Sonuçları",
@@ -32,6 +33,7 @@ RELATIONS = (
     ("Kontrol - Madde", "control_clauses", "controls", "clauses", "control_id", "clause_id"),
     ("Kontrol - Süreç", "control_processes", "controls", "processes", "control_id", "process_id"),
     ("Kontrol - Hedef", "control_objectives", "controls", "objectives", "control_id", "objective_id"),
+    ("Denetim - Standart", "audit_standards", "audits", "standards", "audit_id", "standard_id"),
     ("Denetim - Madde", "audit_clauses", "audits", "clauses", "audit_id", "clause_id"),
     ("Kanıt - Denetim", "evidence_audits", "evidence", "audits", "evidence_id", "audit_id"),
     ("Kanıt - Kontrol", "evidence_controls", "evidence", "controls", "evidence_id", "control_id"),
@@ -41,6 +43,11 @@ RELATIONS = (
     ("Doküman - Kontrol", "document_controls", "documents", "controls", "document_id", "control_id"),
     ("Kontrol Çalışması - Kanıt", "execution_evidence", "executions", "evidence", "execution_id", "evidence_id")
 )
+# A fresh corporate DB can assign different integer IDs to the same risk/catalog entry.
+RISK_REFERENCE_CODES = {
+    "risks": ("catalog_id","risk_catalog","Kaynak katalog kodu"),
+    "actions": ("risk_id","risks","İlişkili risk kodu"),
+}
 MAX_ROWS_IMPORT = 3000
 STRING_LIMIT = 10000
 
@@ -61,7 +68,14 @@ def export(db, table):
         fields=columns(name)
         header=[grc_plus.FIELD_LABELS.get(x,x.replace("_"," ").title()) for x in fields]
         records=db.execute(f"SELECT * FROM {name} ORDER BY id LIMIT ?",(5000,)).fetchall()
-        sheets[SHEETS[name]]=[header]+[[rec[field] for field in fields] for rec in records]
+        values=[[rec[field] for field in fields] for rec in records]
+        if name in RISK_REFERENCE_CODES:
+            field,target_table,label = RISK_REFERENCE_CODES[name]
+            code_by_id = dict(db.execute(f"SELECT id,code FROM {target_table}"))
+            header.append(label)
+            for row,rec in zip(values,records):
+                row.append(code_by_id.get(rec[field]))
+        sheets[SHEETS[name]]=[header]+values
     if table=="all":
         values=[["İlişki Türü","Kaynak Anahtar","Hedef Anahtar"]]
         for label, link, source, target_name, parent_col, target_col in RELATIONS:
@@ -103,33 +117,36 @@ def key_for_id(db,table,rid):
 
 
 def id_for_key(db,table,key):
-    import app
-    key=str(key).strip()
-    if not key:
+    key=str(key)
+    if not key.strip():
         return None
     if table=="clauses":
         if " :: " not in key:
             return None
-        scode, clause=key.split(" :: ",1)
-        row=db.execute("""SELECT c.id FROM clauses c JOIN standards s ON s.id=c.standard_id
-                            WHERE s.code=? AND c.code=? LIMIT 1""",(scode,clause)).fetchone()
+        args=key.split(" :: ",1)
+        query="""SELECT c.id FROM clauses c JOIN standards s ON s.id=c.standard_id
+                 WHERE s.code=? AND c.code=?"""
     elif table=="evidence":
         title,sep,source=key.rpartition(" :: ")
         if not sep:
             return None
-        row=db.execute("SELECT id FROM evidence WHERE title=? AND source=? LIMIT 1",
-                       (title,source)).fetchone()
+        query="SELECT id FROM evidence WHERE title=? AND COALESCE(source,'')=?"
+        args=(title,source)
     elif table=="audits":
-        row=db.execute("SELECT id FROM audits WHERE name=? LIMIT 1",(key,)).fetchone()
+        query="SELECT id FROM audits WHERE name=?"
+        args=(key,)
     elif table in ("executions","findings"):
-        try:
-            number=int(key)
-        except ValueError:
+        if not key.isdecimal():
             return None
-        row=db.execute(f"SELECT id FROM {table} WHERE id=?",(number,)).fetchone()
+        query=f"SELECT id FROM {table} WHERE id=?"
+        args=(key,)
     else:
-        row=db.execute(f"SELECT id FROM {table} WHERE code=? LIMIT 1",(key,)).fetchone()
-    return row["id"] if row else None
+        query=f"SELECT id FROM {table} WHERE code=?"
+        args=(key,)
+    found=db.execute(query+" LIMIT 2",args).fetchall()
+    if len(found)>1:
+        raise ValueError("Excel ilişki anahtarı birden fazla kayda karşılık geliyor")
+    return found[0]["id"] if found else None
 
 
 def _as_text(value):
@@ -152,33 +169,56 @@ def _parse_records(db, table, sheet):
         aliases[field.casefold()]=field
         aliases[grc_plus.FIELD_LABELS.get(field,field).casefold()]=field
         aliases[field.replace("_"," ").title().casefold()]=field
+    ref = RISK_REFERENCE_CODES.get(table)
+    if ref:
+        aliases[ref[2].casefold()]="_reference_code"
     mapping=[]
     for label in headers:
         key=aliases.get(label.casefold())
         if not key and label:
             raise ValueError(f"{SHEETS[table]}: tanınmayan alan: {label}")
         mapping.append(key)
-    if "id" in mapping:
-        # ID is exported for traceability but never imported as a primary key.
-        pass
+    if len(set(k for k in mapping if k)) != len([k for k in mapping if k]):
+        raise ValueError("Aynı Excel alanı birden fazla sütunda kullanılamaz")
     stats={"inserted":0,"skipped":0}
     for index,row in enumerate(sheet[1:],2):
+        exported = {field:row[col] if col<len(row) else "" for col,field in enumerate(mapping) if field}
+        read_only = (table=="executions" or
+                     (table=="evidence" and any(exported.get(k) for k in grc_plus.FILE_METADATA)) or
+                     (table=="findings" and exported.get("execution_id")))
+        if read_only:
+            # XLSX has no binary file, receipt or signed snapshot to substantiate a new history.
+            # Compare the full exported row, not a coincidental equal integer on a different DB.
+            current = db.execute(f"SELECT * FROM {table} WHERE id=?", (exported.get("id"),)).fetchone()
+            if not current or any(str(exported.get(k,""))!=xlsx_io.spreadsheet_text(current[k])
+                                  for k in columns(table)):
+                raise ValueError(f"{SHEETS[table]} satır {index}: doğrulanmış geçmiş Excel ile oluşturulamaz veya değiştirilemez")
+            stats["skipped"]+=1
+            continue
         data={}
         for col,field in enumerate(mapping):
-            if not field or field=="id" or col>=len(row):
+            if not field or field in ("id","_reference_code") or col>=len(row):
                 continue
             raw=_as_text(row[col])
             if raw is None or raw=="":
                 continue
             if len(raw)>STRING_LIMIT:
                 raise ValueError(f"{SHEETS[table]} satır {index}: hücre çok uzun")
-            if field.endswith("_id") or field in ("likelihood","impact","active","file_size"):
+            if field.endswith("_id") or field in ("likelihood","impact","active","appetite","file_size"):
                 try:
                     data[field]=int(raw)
                 except ValueError:
                     raise ValueError(f"{SHEETS[table]} satır {index}: {field} sayı olmalı")
             else:
                 data[field]=raw
+        if ref and (ref[0] in data or exported.get("_reference_code")):
+            code = str(exported.get("_reference_code") or "").strip()
+            if not code:
+                raise ValueError(f"{SHEETS[table]} satır {index}: {ref[2]} gerekli")
+            resolved = id_for_key(db,ref[1],code)
+            if not resolved:
+                raise ValueError(f"{SHEETS[table]} satır {index}: {ref[2]} bulunamadı")
+            data[ref[0]]=resolved
         if not data:
             continue
         for field in ("status","frequency","nature","execution_mode","source",
@@ -204,11 +244,6 @@ def _parse_records(db, table, sheet):
                 raise ValueError("Kanıt başlığı gerekli")
             data.setdefault("source","manual")
             natural=("title=? AND source=?",(data["title"],data["source"]))
-        elif table in ("executions",):
-            if not data.get("control_id") or not data.get("status"):
-                raise ValueError("Kontrol sonucu için Kontrol ve Durum gerekli")
-            if data.get("executed_at"):
-                natural=("control_id=? AND executed_at=?",(data["control_id"],data["executed_at"]))
         elif table=="findings":
             if not data.get("title"):
                 raise ValueError("Bulgu başlığı gerekli")
@@ -226,12 +261,16 @@ def _parse_records(db, table, sheet):
                 raise ValueError(f"{SHEETS[table]} satır {index}: zorunlu alan eksik: {field}")
         if table in ("risks","actions","documents") and "created_at" not in data:
             data["created_at"]=app.utcnow()
+        if table=="audits":
+            grc_plus.validate_audit_fields(data)
+        if table=="risks":
+            grc_plus.risk_management.decision(db,None,{},data)
         app.insert(db,table,data)
         stats["inserted"]+=1
     return stats
 
 
-def _relations(db,records):
+def _relations(db,records,existing_audits,changed_audits):
     relations={label:(table,src,dest,src_col,dest_col)
                for label,table,src,dest,src_col,dest_col in RELATIONS}
     added=0
@@ -246,6 +285,18 @@ def _relations(db,records):
         target_id=id_for_key(db,dest,target)
         if not source_id or not target_id:
             raise ValueError(f"Bağlantılar satır {index}: referans çözülemedi ({source} → {target})")
+        if table=="execution_evidence":
+            if not db.execute("SELECT 1 FROM execution_evidence WHERE execution_id=? AND evidence_id=?",
+                              (source_id,target_id)).fetchone():
+                raise ValueError("Geçmiş kontrol çalışmasının kanıt bağlantısı değiştirilemez")
+            continue
+        if table in ("audit_standards","audit_clauses"):
+            if db.execute(f"SELECT 1 FROM {table} WHERE {src_col}=? AND {dest_col}=?",
+                          (source_id,target_id)).fetchone():
+                continue
+            if existing_audits.get(source_id) in ("completed","closed","cancelled"):
+                raise ValueError("Sonuçlandırılmış denetimin kapsamı Excel ile değiştirilemez")
+            changed_audits.add(source_id)
         cursor=db.execute(f"INSERT OR IGNORE INTO {table}({src_col},{dest_col}) VALUES(?,?)",
                           (source_id,target_id))
         added+=max(0,cursor.rowcount)
@@ -264,9 +315,13 @@ def import_xlsx(db,payload,table):
     except (ValueError,binascii.Error):
         raise ValueError("Geçerli XLSX base64 verisi gerekli")
     parsed=xlsx_io.read_xlsx(binary)
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")
     stats={}
     wanted=TABLE_ORDER if table=="all" else (table,)
     found=False
+    existing_audits=dict(db.execute("SELECT id,status FROM audits"))
+    changed_audits=set()
     for name in wanted:
         if SHEETS[name] in parsed:
             found=True
@@ -277,6 +332,17 @@ def import_xlsx(db,payload,table):
         total=0
         for name, rows in parsed.items():
             if name=="Bağlantılar" or re.fullmatch(r"Bağlantılar [0-9]+",name):
-                total+=_relations(db,rows)
+                total+=_relations(db,rows,existing_audits,changed_audits)
         stats["relationships"]={"inserted":total}
+    if table in ("all","audits"):
+        import app
+        created = {r[0] for r in db.execute("SELECT id FROM audits")} - set(existing_audits)
+        for aid in created | changed_audits:
+            audit = app.audit_scope(db,aid)
+            grc_plus.validate_audit_coverage(audit, {r["id"] for r in audit["standards"]},
+                                             {r["standard_id"] for r in audit["clauses"]})
+            if aid in created and audit["status"] in ("completed","closed","cancelled"):
+                grc_plus.capture_audit_plan(db,aid)
+            if aid in changed_audits:
+                db.execute("UPDATE audits SET revision=revision+1 WHERE id=?",(aid,))
     return stats

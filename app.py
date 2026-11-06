@@ -6,6 +6,7 @@ import execution_service
 import grc_plus
 import re
 import identity
+import entra_auth
 import threading
 import time
 import base64
@@ -24,10 +25,23 @@ from html import escape
 
 DB = os.getenv("CONTROL_DB", "control.db")
 EVIDENCE_DIR = os.getenv("CONTROL_EVIDENCE_DIR", str(Path(DB).parent / "evidence-files"))
-KEY = os.getenv("CONTROL_API_KEY", "")
+def mcp_key():
+    secret_file = os.getenv("CONTROL_API_KEY_FILE")
+    key = os.getenv("CONTROL_API_KEY", "")
+    if secret_file:
+        if key:
+            raise ValueError("Configure one MCP key source")
+        key = Path(secret_file).read_text(encoding="utf-8").strip()
+    if os.getenv("CONTROL_AUTH_MODE") == "entra" and len(key) < 32:
+        raise ValueError("A dedicated MCP key of at least 32 characters is required")
+    return key
+
+
+KEY = mcp_key()
 UI_USER = os.getenv("CONTROL_UI_USER", "")
 UI_PASSWORD = os.getenv("CONTROL_UI_PASSWORD", "")
 COOKIE_SECURE = os.getenv("CONTROL_COOKIE_SECURE", "0") == "1"
+ENTRA = entra_auth.configure(os.environ)
 LOGIN_FAILURES = {}
 LOGIN_LOCK = threading.Lock()
 HOST = os.getenv("CONTROL_HOST", "127.0.0.1")
@@ -243,6 +257,9 @@ def audit_scope(db, audit_id):
     if not audits:
         return None
     audit = audits[0]
+    audit["standards"] = rows(db, """SELECT s.* FROM standards s
+        JOIN audit_standards m ON m.standard_id=s.id WHERE m.audit_id=?
+        ORDER BY s.code,s.id""", (audit_id,))
     audit["clauses"] = rows(db, """SELECT c.*, s.code AS standard_code FROM clauses c
         JOIN audit_clauses ac ON ac.clause_id=c.id
         JOIN standards s ON s.id=c.standard_id
@@ -364,6 +381,14 @@ let v=await r.json();if(r.ok)location.reload();else alert(v.error||'Hata');
 
 
 class Handler(BaseHTTPRequestHandler):
+    def version_string(self):
+        return "KS-GRC"
+
+    def end_headers(self):
+        if COOKIE_SECURE:
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
+        super().end_headers()
+
     def respond(self, code, data, content_type="application/json; charset=utf-8", headers=None):
         raw = data.encode("utf-8") if isinstance(data, str) else json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -375,14 +400,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         if content_type.startswith("text/html"):
-            scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
-            hashes = ["'sha256-"+base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode()+"'" for t in scripts]
+            def hashes(tag):
+                blocks = re.findall(rf"<{tag}>(.*?)</{tag}>", data, re.DOTALL|re.IGNORECASE)
+                return " ".join("'sha256-"+base64.b64encode(hashlib.sha256(t.encode()).digest()).decode()+"'" for t in blocks)
             policy = ("default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
-                      "connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; "
-                      "script-src 'self' "+(" ".join(hashes) if hashes else "")+"; object-src 'none'")
+                      "connect-src 'self'; img-src 'self' data:; style-src 'self' "+hashes("style")+"; "
+                      "style-src-attr 'none'; script-src 'self' "+hashes("script")+"; object-src 'none'")
             self.send_header("Content-Security-Policy", policy)
-            if COOKIE_SECURE:
-                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -394,28 +418,39 @@ class Handler(BaseHTTPRequestHandler):
         db.commit()
         return self.respond(code, payload)
 
-    def send_redirect(self, dest):
+    def log_request(self, code="-", size="-"):
+        # Entra callback URLs contain short-lived credentials; never log query strings.
+        self.log_message("%s %s %s", self.command, self.path.partition("?")[0], code)
+
+    def send_redirect(self, dest, cookie=None):
         self.send_response(303)
         self.send_header("Location", dest)
+        self.send_header("Referrer-Policy", "no-referrer")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
     def session_user(self):
         with connect() as db:
-            return identity.read_session(db, self.headers.get("Cookie", ""))
+            scope = ENTRA.config.session_scope if ENTRA else "local"
+            return identity.read_session(db, self.headers.get("Cookie", ""), scope=scope)
 
     def authorized(self):
         # MCP can use an independent API key. Browser users need an active session.
         api_key = self.headers.get("X-API-Key", "")
-        if KEY and api_key and hmac.compare_digest(api_key, KEY):
+        if KEY and api_key and hmac.compare_digest(api_key.encode(), KEY.encode()):
             # Least-privilege: MCP reads GRC catalogs/evidence and records check results.
             # It cannot change control definitions, export all data, or manage people.
             route = urlparse(self.path).path
             parts = route.strip("/").split("/")
-            can_read = (self.command == "GET" and
-                route.startswith("/api/") and not
-                (route.startswith("/api/admin") or route.startswith("/api/excel")))
+            catalogs = {"controls","objectives","standards","clauses","processes","audits","findings","evidence","executions","health"}
+            can_read = self.command == "GET" and (
+                (len(parts)==2 and parts[0]=="api" and parts[1] in catalogs)
+                or (len(parts)==4 and parts[0]=="api" and parts[2].isdecimal()
+                    and ((parts[3]=="context" and parts[1] in {"controls","objectives","audits","findings","evidence","executions"})
+                         or (parts[1],parts[3]) in {("audits","scope"),("evidence","download")})))
             can_write = (self.command == "POST" and
                 (route == "/api/executions" or route == "/api/evidence" or
                  route == "/api/evidence/upload" or
@@ -429,12 +464,19 @@ class Handler(BaseHTTPRequestHandler):
         if user:
             self.auth_type = "session"
             self.current_user = user
-            if user["must_change_password"] and not (
-                self.path.startswith("/api/me") or
-                self.path.startswith("/api/change-password") or
-                self.path.startswith("/api/logout") or
-                self.path.startswith("/change-password")
-            ):
+            route = urlparse(self.path).path.rstrip("/")
+            if ENTRA:
+                admin_area = route.split("/")[1:3] in (["api", "admin"], ["api", "excel"])
+                if (user["app_role"] not in (entra_auth.ADMIN, entra_auth.AUDITOR)
+                        or (admin_area and user["app_role"] != entra_auth.ADMIN)):
+                    self.respond(403, {"error": "Bu işlem için kurumsal yetkiniz yok"})
+                    return False
+                if self.command == "POST" and route == "/api/admin/users":
+                    self.respond(403, {"error": "Kullanıcı atamalarını Entra ID üzerinden yapın"})
+                    return False
+            if user["must_change_password"] and route not in {
+                "/api/me", "/api/change-password", "/api/logout", "/change-password"
+            }:
                 if self.path.startswith("/api/"):
                     self.respond(403, {"error": "Parolanızı değiştirmeniz gerekiyor"})
                 else:
@@ -453,7 +495,10 @@ class Handler(BaseHTTPRequestHandler):
             return True
         origin = self.headers.get("Origin")
         host = self.headers.get("Host")
-        if not origin or not host or urlparse(origin).netloc != host or (COOKIE_SECURE and urlparse(origin).scheme != 'https'):
+        scheme = "https" if COOKIE_SECURE else "http"
+        expected = ENTRA.config.origin if ENTRA else f"{scheme}://{host}"
+        if (not host or origin != expected or len(self.headers.get_all("Origin", [])) != 1
+                or (ENTRA and host.lower() != urlparse(ENTRA.config.redirect).netloc.lower())):
             self.respond(403, {"error": "Güvenlik doğrulaması başarısız"})
             return False
         return True
@@ -462,7 +507,7 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         if not 0 < length <= 8192:
             raise ValueError("Geçersiz istek boyutu")
-        if "application/json" not in self.headers.get("Content-Type", ""):
+        if self.headers.get_content_type() != "application/json":
             raise ValueError("JSON içerik tipi gerekli")
         payload = json.loads(self.rfile.read(length))
         if not isinstance(payload, dict):
@@ -470,23 +515,34 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def handle_login(self):
+        if ENTRA:
+            return self.respond(403, {"error": "Kurum hesabınızla giriş yapın"})
+        # Browsers include Origin on login POST. Native JSON clients may omit it.
+        origin = self.headers.get("Origin")
+        scheme = "https" if COOKIE_SECURE else "http"
+        if origin is not None and origin != f"{scheme}://{self.headers.get('Host')}":
+            return self.respond(403, {"error": "Güvenlik doğrulaması başarısız"})
         try:
             payload = self.credentials_payload()
             username = payload.get("username", "")
             password = payload.get("password", "")
             if not isinstance(username, str) or not isinstance(password, str):
                 raise ValueError("Kullanıcı adı ve parola gerekli")
+            if not 1 <= len(username) <= 80 or not 1 <= len(password) <= 1024:
+                return self.respond(401, {"error": "Kullanıcı adı veya parola yanlış"})
             key = (self.client_address[0], username)
             with LOGIN_LOCK:
-                timestamps = [t for t in LOGIN_FAILURES.get(key, []) if t > time.monotonic() - 300]
-                LOGIN_FAILURES[key] = timestamps
-                if len(timestamps) >= 8:
+                now = time.monotonic()
+                if len(LOGIN_FAILURES) >= 512:
+                    for stale in [k for k, hits in LOGIN_FAILURES.items() if not hits or hits[-1] <= now-300]:
+                        del LOGIN_FAILURES[stale]
+                attempts = [t for t in LOGIN_FAILURES.get(key, []) if t > now-300]
+                if len(attempts) >= 8 or (key not in LOGIN_FAILURES and len(LOGIN_FAILURES) >= 512):
                     return self.respond(429, {"error": "Çok fazla giriş denemesi; daha sonra tekrar deneyin"})
+                LOGIN_FAILURES[key] = attempts + [now]
             with connect() as db:
                 account = identity.authenticate(db, username, password)
                 if not account:
-                    with LOGIN_LOCK:
-                        LOGIN_FAILURES.setdefault(key, []).append(time.monotonic())
                     return self.respond(401, {"error": "Kullanıcı adı veya parola yanlış"})
                 session = identity.new_session(db, account["id"])
                 db.commit()
@@ -499,6 +555,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {"error": str(exc)})
 
     def handle_change_password(self):
+        if ENTRA:
+            return self.respond(403, {"error": "Parolalar Entra ID üzerinden yönetilir"})
         if not self.authorized() or not self.same_origin():
             return
         if getattr(self, "auth_type", None) != "session":
@@ -533,18 +591,52 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(self, "auth_type", None) != "session":
             return self.respond(403, {"error": "Kullanıcı oturumu gerekli"})
         with connect() as db:
-            identity.revoke(db, self.headers.get("Cookie", ""))
+            identity.revoke(db, self.headers.get("Cookie", ""), enterprise=bool(ENTRA))
             db.commit()
         self.respond(200, {"logged_out": True},
-            headers={"Set-Cookie": identity.session_cookie("", secure=COOKIE_SECURE, clear=True)})
+            headers={"Set-Cookie": identity.session_cookie("", secure=COOKIE_SECURE, clear=True, enterprise=bool(ENTRA))})
+
+    def entra_login(self, callback=False):
+        if self.headers.get("Host", "").lower() != urlparse(ENTRA.config.redirect).netloc.lower():
+            return self.respond(400, {"error": "Kurumsal uygulama adresini kullanın"})
+        try:
+            if not callback:
+                dest, cookie = ENTRA.begin()
+                return self.send_redirect(dest, cookie)
+            oid, role, expiry, display = ENTRA.finish(urlparse(self.path).query, self.headers.get("Cookie", ""))
+            with connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                user_id = identity.entra_account(db, ENTRA.config.tenant, oid, display)
+                if user_id is None:
+                    raise entra_auth.Denied("inactive_account")
+                session = identity.new_session(db, user_id, scope=ENTRA.config.session_scope,
+                                               role=role, expires=expiry)
+            # A same-origin document commits before navigation. Strict session cookies then
+            # work even in browsers that keep cross-site redirect chains in a third-party context.
+            return self.respond(200, identity.ENTRA_SUCCESS, "text/html; charset=utf-8",
+                                headers={"Set-Cookie": identity.session_cookie(session, secure=True, enterprise=True)})
+        except entra_auth.Denied as exc:
+            self.log_message("Entra sign-in denied (%s)", exc)
+            return self.respond(403, identity.ENTRA_DENIED, "text/html; charset=utf-8")
+        except entra_auth.Unavailable as exc:
+            self.log_message("Entra sign-in unavailable (%s)", exc)
+            return self.respond(503, {"error": "Kurumsal oturum hizmeti geçici olarak kullanılamıyor"})
 
     def do_GET(self):
         path_only = urlparse(self.path).path
+        if ENTRA and path_only == "/auth/entra/start":
+            return self.entra_login()
+        if ENTRA and path_only == entra_auth.CALLBACK:
+            return self.entra_login(callback=True)
         if path_only == "/login":
+            if ENTRA:
+                return self.respond(200, identity.ENTRA_LOGIN, "text/html; charset=utf-8")
             return self.respond(200, identity.LOGIN_HTML, "text/html; charset=utf-8")
         if not self.authorized():
             return
         if path_only == "/change-password":
+            if ENTRA:
+                return self.send_redirect("/")
             return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
         if path_only == "/api/me":
             return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
@@ -714,14 +806,6 @@ class Handler(BaseHTTPRequestHandler):
                         if target in payload:
                             mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
                     return self.committed_response(db, 201, {"id": record_id, "sha256": digest, "size": len(binary)})
-                if len(parts) == 3 and parts[:2] == ["api", "audits"] and parts[2] == "from-standard":
-                    standard_id = payload.get("standard_id")
-                    if type(standard_id) is not int or not rows(db, "SELECT id FROM standards WHERE id=?", (standard_id,)):
-                        raise ValueError("Valid standard_id required")
-                    audit_id = insert(db, "audits", payload)
-                    clause_ids = [r["id"] for r in rows(db, "SELECT id FROM clauses WHERE standard_id=?", (standard_id,))]
-                    mapping(db, "audit_clauses", "audit_id", audit_id, "clause_id", clause_ids)
-                    return self.committed_response(db, 201, {"audit_id": audit_id, "clause_count": len(clause_ids)})
                 if len(parts) == 2 and parts[0] == "api" and parts[1] in TABLES:
                     table = parts[1]
                     if table == "executions":
@@ -733,13 +817,17 @@ class Handler(BaseHTTPRequestHandler):
                         if not result.get("replayed"):
                             grc_plus.log(db,self,"EXECUTE","controls",payload.get("control_id"))
                         return self.committed_response(db,200 if result.get("replayed") else 201,result)
+                    if table == "evidence" and set(payload) & grc_plus.FILE_METADATA:
+                        raise ValueError("Dosya özellikleri yalnızca doğrulanmış kanıt yüklemesiyle kaydedilir")
+                    if table == "findings" and payload.get("execution_id") is not None:
+                        raise ValueError("Çalışmaya bağlı bulgu yalnızca kontrol sonucundan oluşur")
+                    if table=="evidence" and self.auth_type=="api_key" and payload.get("source")!="mcp":
+                        return self.respond(403,{"error":"Makine anahtarı yalnız MCP kaynaklı kanıt oluşturabilir"})
                     record_id = insert(db, table, payload)
                     if table == "evidence":
                         for target in ("clauses", "processes"):
                             if target in payload:
                                 mapping(db, f"evidence_{target}", "evidence_id", record_id, f"{TARGET_COLUMNS[target]}_id", payload[target])
-                    if table == "audits" and "clause_ids" in payload:
-                        mapping(db, "audit_clauses", "audit_id", record_id, "clause_id", payload["clause_ids"])
                     return self.committed_response(db, 201, {"id": record_id})
             self.respond(404, {"error": "Not found"})
         except execution_service.Conflict as exc:

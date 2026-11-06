@@ -1,0 +1,25 @@
+# KS GRC şirket sunucusu kurulumu
+
+Bu profil Linux amd64/arm64 üzerinde Docker Compose v2, tek uygulama örneği, yerel SQLite volume'u ve aynı sunucuda şirketin yönettiği HTTPS ters vekili kullanır. GitHub'da dağıtılacak commit için **Enterprise security gates** ve **Control GRC CI** işlerinin başarılı sonuçlarını ve güvenlik işinin imaj kimliğini kaydedin. Aynı revizyonu şirketin kayıt deposuna imaj kimliğiyle terfi ettirin veya kurum sunucusunda tekrar derleyip tarayın. Mimariye özgü imajı kendi ortamınızda tarayın.
+
+1. Uygulama için şirket içi DNS, TLS ve ağ erişim listesini hazırlayın. Yönetilen güvenlik duvarında yalnızca kurumsal istemcilere/MCP'ye HTTPS açın. Uygulamanın loopback portunu yayımlamayın. Egress erişimini onaylı DNS, CA ve Microsoft kimlik uçlarıyla sınırlayın. Reverse proxy, WAF, APM ve hata kayıtlarında kimlik kodlarını, sorgu dizelerini, çerezleri veya istek gövdelerini saklamayın. Aynı hostta çalışan NGINX için örnek [nginx.conf.example](nginx.conf.example). Adı geçtiği her satırda gerçek FQDN ile değiştirin. Büyük gövdeler için NGINX'in geçici dizinini de şifreli diskte tutun.
+2. [Entra kayıt ve test adımlarını](../docs/ENTRA_ID.md) izleyin. Entra yöneticisi tek kiracılı Web uygulaması oluşturur. HTTPS callback tam olarak `/auth/entra/callback` ile biter. İşletme uygulamasında **Assignment required** seçilir. Kullanıcılara/gruplara izin verilen uygulama rollerini atayın. Yayınlanmış bir kimlik doğrulama bağlamını (`c1`…`c99`) hedefleyen ve MFA kimlik doğrulama gücünü zorunlu kılan Conditional Access politikasını **On** konumuna alın. Report-only durumunu dağıtım onayı olarak kullanmayın. Tenant yöneticisi test hesabında rol, MFA ve reddetme kayıtlarını inceler.
+3. Örnek [settings.example](settings.example) dosyasını `/etc/ks-grc/settings` yoluna kopyalayarak dört değeri doldurun. Entra istemci sırrını ve bağımsız, en az 32 rastgele karakterlik MCP anahtarını ayrı dosyalara koyun. Yerel Compose dosya secret'larını salt okunur bağlar. Ana dizini koruyun, her dosyayı **UID 10001** için okunur ve diğer kullanıcılara kapalı yapın (örneğin dosya sahibi `10001:10001`, mod `0400`). İmaj ve checkout dışında tutun. Docker grup üyeliğini ayrıcalıklı erişim olarak yönetin. MCP'ye kendi sırrını şirketin secret store'u üzerinden verin.
+4. Doğrulanmış kaynak revizyonu kökünde yalnız şu dosyayı seçerek temiz şirket profilini başlatın. Önizleme tüneli, yerel kullanıcı bootstrap'ı ve demo/seed yüklemesi bu profilde çalışmaz. Uygulama başlangıcı hatalı kimlik ayarlarında durur.
+
+```bash
+docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml config --quiet
+docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml up -d --build --wait
+```
+
+   İsteğe bağlı olarak ISO/IEC 20000-1 ve seçili CIS v8.1 referans madde başlıklarını yükleyebilirsiniz. Madde başlıklarını kuruluşun lisanslı standart metniyle doğrulayın. Bu komut denetim, test sonucu veya kanıt oluşturmaz.
+
+   ```bash
+   docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml exec -T app python seed_reference.py --catalog-only
+   ```
+
+5. HTTPS üzerinden atanmış Entra kullanıcısıyla giriş yapın. Entra oturum açma günlüğünde doğru Conditional Access politikasını ve MFA'nın karşılanmasını doğrulayın. Atanmamış kullanıcı, yanlış kiracı, MFA bağlamı eksik token ve yerel parola girişi reddedilmeli. Kurumsal MCP'den test kanıtı/yürütmesi gönderin, kullanıcı yönetimine erişiminin reddedildiğini görün. İmaj taraması veya bu kontrollerde açık bulgu varsa üretim onayını kapatmayın.
+6. SQLite volume'u ve harici yedekleri şifreli depolamada tutun. Kanıt ve kişisel verileri içerebilen yedekler için süreli saklama, erişim izleri ve geri yükleme testi uygulayın. `backup.py` ZIP'i şifrelemez. Canlı pilottan yeni ortama kişisel veri veya test kanıtı taşımak ayrı bir operatör kararıdır. Taşımada eski oturumları sonlandırın ve entegrasyon sırlarını döndürün. Mevcut migration ve geri yükleme adımları [dağıtım kılavuzunda](../DEPLOYMENT.md).
+7. Her sürümde yeni CVE veritabanıyla taramayı tekrarlayın. CI, Dockerfile/çalışma dizini ile derlediği imajı tarar ve imajın CycloneDX SBOM'unu yayımlar. İmajda tek bir yüksek veya kritik bulgu (düzeltmesi çıkmamış olanlar dahil) dağıtım kapısını başarısız kılar. Depo ayarlarında iki CI işini zorunlu branch protection kontrolleri olarak seçin. CI yürütmesi manuel şirket onayının yerine geçmez.
+
+**Yedek kabul sınırları.** Geri yükleme varsayılan olarak toplam açılmış boyutu 16 GiB ile sınırlar; daha büyük güvenilen arşivlerde disk kapasitesini kontrol ettikten sonra `--max-restore-bytes` ile artırabilirsiniz. Manifest 8 MiB, giriş sayısı 50.000 ile sınırlıdır. Başarısız geri yükleme oluşturduğu hedefi temizler. SHA-256 manifesti arşivin kaynağını doğrulamaz. Kaynak doğrulaması için kurumun erişim kontrollü ve imzalı veya kimlik doğrulamalı şifreli yedek sistemini kullanın.

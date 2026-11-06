@@ -31,7 +31,7 @@ def existing_id(db, table, where, args):
     return value["id"] if value else None
 
 
-def seed():
+def seed(catalog_only=False):
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     scenario = json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))
     if catalog["data_classification"] != "SIMULATED_NON_PRODUCTION":
@@ -46,7 +46,7 @@ def seed():
         db.execute("""CREATE TABLE IF NOT EXISTS seed_runs (
             key TEXT PRIMARY KEY, applied_at TEXT NOT NULL, summary_json TEXT NOT NULL)""")
         prev = db.execute("SELECT summary_json FROM seed_runs WHERE key=?", (SEED_KEY,)).fetchone()
-        if prev:
+        if prev and not catalog_only:
             return {"skipped": True, "summary": json.loads(prev["summary_json"])}
         standard_ids = {}
         clause_ids = {}
@@ -75,6 +75,8 @@ def seed():
                             WHERE id=? AND parent_id IS NULL""",
                             (clauses_by_code[parent], clauses_by_code[key]))
 
+        if catalog_only:
+            return {"standards_added":counters["standards"], "clauses_added":counters["clauses"]}
         process_ids = {}
         for code, name, owner, description in scenario["processes"]:
             ident = existing_id(db, "processes", "code=?", (code,))
@@ -111,12 +113,18 @@ def seed():
                         [objective_ids[k] for k in control["objectives"]])
 
         audit_ids = {}
+        finish_after_runs = {}
         for audit in scenario["audits"]:
             aid = existing_id(db, "audits", "name=?", (audit["name"],))
             if aid is None:
                 payload = {k: audit.get(k) for k in ("name", "scope", "planned_start", "planned_end",
                    "actual_start", "actual_end", "status", "auditors", "auditees")}
+                terminal = payload["status"] in ("completed","closed","cancelled")
+                if terminal:
+                    payload["status"]="in_progress"
                 aid = app.insert(db, "audits", payload)
+                if terminal:
+                    finish_after_runs[aid]=audit["status"]
                 counters["audits"] += 1
             audit_ids[audit["key"]] = aid
             if audit.get("standard"):
@@ -220,6 +228,9 @@ def seed():
                 if result["finding_id"]:
                     counters["findings"] += 1
 
+        for aid, status in finish_after_runs.items():
+            db.execute("UPDATE audits SET status=? WHERE id=?", (status,aid))
+            app.grc_plus.capture_audit_plan(db,aid)
         db.execute("INSERT INTO seed_runs(key,applied_at,summary_json) VALUES(?,?,?)",
                    (SEED_KEY, app.utcnow(), json.dumps(counters, ensure_ascii=False)))
         db.commit()
@@ -228,8 +239,10 @@ def seed():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import synthetic KS GRC UAT catalog/data once")
-    parser.add_argument("--apply", action="store_true", help="Required explicit opt-in")
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--apply", action="store_true", help="Install the synthetic pilot data")
+    mode.add_argument("--catalog-only", action="store_true", help="Install only reference standard headings")
     args = parser.parse_args()
-    if not args.apply:
-        parser.error("Add --apply to import the synthetic reference dataset")
-    print(json.dumps(seed(), ensure_ascii=False))
+    if args.apply and os.getenv("CONTROL_AUTH_MODE")=="entra":
+        parser.error("Use --catalog-only in the enterprise profile")
+    print(json.dumps(seed(catalog_only=args.catalog_only), ensure_ascii=False))

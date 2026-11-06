@@ -46,6 +46,13 @@ def record(db, data, create):
                 raise Conflict("Bu işlem anahtarı farklı bir sonuç için zaten kullanılmış")
             finding=db.execute("SELECT id FROM findings WHERE execution_id=?",(receipt["execution_id"],)).fetchone()
             return {"execution_id":receipt["execution_id"],"finding_id":finding["id"] if finding else None,"replayed":True}
+    audit_id=data.get("audit_id")
+    if audit_id is not None:
+        audit=db.execute("SELECT status FROM audits WHERE id=?", (audit_id,)).fetchone() if type(audit_id) is int else None
+        if not audit:
+            raise ValueError("Geçerli denetim gerekli")
+        if audit["status"] in ("completed","closed","cancelled"):
+            raise ValueError("Sonuçlandırılmış denetime yeni kontrol çalışması eklenemez")
     cid=data.get("control_id")
     control=app.context(db,cid) if type(cid)is int else None
     if not control or not control["active"]:
