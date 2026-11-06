@@ -381,6 +381,14 @@ let v=await r.json();if(r.ok)location.reload();else alert(v.error||'Hata');
 
 
 class Handler(BaseHTTPRequestHandler):
+    def version_string(self):
+        return "KS-GRC"
+
+    def end_headers(self):
+        if COOKIE_SECURE:
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
+        super().end_headers()
+
     def respond(self, code, data, content_type="application/json; charset=utf-8", headers=None):
         raw = data.encode("utf-8") if isinstance(data, str) else json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -392,14 +400,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         if content_type.startswith("text/html"):
-            scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", data if isinstance(data,str) else "", re.DOTALL|re.IGNORECASE)
-            hashes = ["'sha256-"+base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode()+"'" for t in scripts]
+            def hashes(tag):
+                blocks = re.findall(rf"<{tag}>(.*?)</{tag}>", data, re.DOTALL|re.IGNORECASE)
+                return " ".join("'sha256-"+base64.b64encode(hashlib.sha256(t.encode()).digest()).decode()+"'" for t in blocks)
             policy = ("default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
-                      "connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; "
-                      "script-src 'self' "+(" ".join(hashes) if hashes else "")+"; object-src 'none'")
+                      "connect-src 'self'; img-src 'self' data:; style-src 'self' "+hashes("style")+"; "
+                      "style-src-attr 'none'; script-src 'self' "+hashes("script")+"; object-src 'none'")
             self.send_header("Content-Security-Policy", policy)
-            if COOKIE_SECURE:
-                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()

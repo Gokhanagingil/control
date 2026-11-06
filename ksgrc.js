@@ -787,7 +787,7 @@ async function home(){
 function ring(value,color){
  const valid=typeof value==='number'&&Number.isFinite(value);
  const n=valid?Math.max(0,Math.min(100,value)):0;
- return '<div class="ring" style="background:conic-gradient('+color+' '+n+'%,#e9eef6 '+n+'%)">'+
+ return '<div class="ring" data-ring-color="'+color+'" data-ring-value="'+n+'">'+
  '<div class="ring-inner">'+(valid?n.toFixed(1).replace('.0','')+'%':'—')+'</div></div>';
 }
 async function compliancePage(){
@@ -841,13 +841,17 @@ function displayCompliance(data){
  '<div class="panel"><h2>Standart maddesi eşleştirmesi</h2>'+
  '<p class="intro">'+data.mapped_clauses+' / '+data.clause_count+
  ' maddede en az bir aktif kontrol var. Eşleştirme tek başına uygunluk anlamına gelmez.</p>'+
- '<div class="progress"><div class="progress-fill" style="width:'+data.framework_coverage_pct+'%"></div></div></div>':'')+
+ '<div class="progress"><div class="progress-fill" id="frameworkCoverageBar"></div></div></div>':'')+
  '<div class="panel"><div class="panel-title"><h2>Kontrol bazında ölçüm</h2>'+
  '<span class="muted">'+data.total_controls+' kontrol</span></div>'+
  '<div class="tablewrap"><table><thead><tr><th>Kontrol kodu</th><th>Kontrol adı</th><th>Son sonuç</th><th>Son kontrol zamanı</th></tr></thead>'+
  '<tbody>'+results.map(x=>'<tr class="clickable" data-control="'+x.id+'"><td class="cell-primary">'+esc(x.code)+'</td>'+
  '<td>'+esc(x.name)+'</td><td>'+esc(statText(x.status))+'</td><td>'+esc(x.executed_at||'—')+'</td></tr>').join('')+
  '</tbody></table>'+(results.length?'':'<div class="empty">Seçilen kapsamda eşleştirilmiş kontrol bulunamadı.</div>')+'</div></div>';
+ $('complianceResult').querySelectorAll('[data-ring-value]').forEach(el=>{
+  const n=Number(el.dataset.ringValue);el.style.background='conic-gradient('+el.dataset.ringColor+' '+n+'%,#e9eef6 '+n+'%)';
+ });
+ if($('frameworkCoverageBar'))$('frameworkCoverageBar').style.width=Number(data.framework_coverage_pct)+'%';
  $('complianceResult').querySelectorAll('[data-control]').forEach(x=>x.onclick=()=>openRecord('controls',Number(x.dataset.control)));
 }
 function relationshipMapSVG(){
@@ -871,7 +875,7 @@ function relationshipMapSVG(){
  lines.map((line,i)=>'<text x="'+(x+17)+'" y="'+(y+61+19*i)+'" font-size="13" fill="#536b84">'+esc(line)+'</text>').join('')+'</g>';
  const label=(x,y,text)=>'<g><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#f8fbff" stroke="#f8fbff" stroke-width="6" stroke-linejoin="round">'+esc(text)+'</text><text x="'+x+'" y="'+y+'" text-anchor="middle" font-size="13" font-weight="600" fill="#3c5d7a">'+esc(text)+'</text></g>';
  const edge=(d,x,y,text,derived=false)=>'<path d="'+d+'" fill="none" stroke="'+(derived?'#8b93a2':'#6686a9')+'" stroke-width="2"'+(derived?' stroke-dasharray="6 5"':'')+' marker-end="url(#mapArrow)"/>'+label(x,y,text);
- let svg='<svg xmlns="http://www.w3.org/2000/svg" id="relationshipMap" viewBox="0 0 1440 1040" role="img" aria-labelledby="mapTitle mapDescription" style="font-family:system-ui,Segoe UI,Arial,sans-serif">'+
+ let svg='<svg xmlns="http://www.w3.org/2000/svg" id="relationshipMap" viewBox="0 0 1440 1040" role="img" aria-labelledby="mapTitle mapDescription" font-family="system-ui,Segoe UI,Arial,sans-serif">'+
  '<title id="mapTitle">KS GRC kayıt ilişki haritası</title><desc id="mapDescription">Standart, madde, hedef, süreç, kontrol, denetim, çalışma, kanıt, bulgu ve düzeltici faaliyet ilişkileri. Düz çizgi doğrudan ilişki; kesikli çizgi kontroller üzerinden türetilen bağdır. Kanıtın ek doğrudan ilişkileri altta tekrar gösterilmiştir.</desc>'+
  '<defs><marker id="mapArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#6686a9"/></marker></defs>'+
  '<rect width="1440" height="1040" fill="#f8fbff" rx="16"/>'+

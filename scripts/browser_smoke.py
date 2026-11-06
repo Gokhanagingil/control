@@ -270,6 +270,7 @@ def run():
                 context=browser.new_context(viewport={'width':1440,'height':980},accept_downloads=True)
                 page=context.new_page();page.set_default_timeout(10000)
                 page.on('pageerror',lambda error:errors.append(str(error)))
+                page.on('console',lambda msg:errors.append(msg.text) if 'violat' in msg.text.lower() and 'content security policy' in msg.text.lower() else None)
                 page.goto(base+'/login')
                 page.locator('[name=username]').fill('uat.browser');page.locator('[name=password]').fill(password)
                 page.get_by_role('button',name='Oturum aç').click();page.wait_for_url('**/change-password')
