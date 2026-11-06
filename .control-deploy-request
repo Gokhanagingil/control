@@ -1,13 +1,10 @@
-KS GRC isolated staging deployment request
-Date: 2026-11-05
-Scope: implement and publish the owner's five usability/relationship feedback items.
-Release source: 177e77ec3c29dfc0c30462bdc39e6f9ebc11fc72 (PR #8, merged)
-Tested PR head: 81af72affafd54170863d9dd743fd8c8bbf93c58
-Verified CI: https://github.com/Gokhanagingil/control/actions/runs/42037281244 — SUCCESS
-Verification: 40 unit/API tests; 27 real Chromium checkpoints with synthetic data and zero page errors; JavaScript syntax; Compose validation; Docker build. Verification artifact contains report and screenshots.
-Changes: entire row opens record; misleading Open button removed; mouse/keyboard resizable detail panel with remembered width; objective control/derived clause/process links; audit's own findings separate from other open findings; interactive exportable GRC relationship map.
-Target: /opt/control-grc; Docker Compose project control-grc only.
-Before upgrade: private coherent SQLite/evidence backup.
-After upgrade: active bootstrap account, SQLite integrity/foreign keys, authenticated API/health, unchanged other container lifecycles and external HTTPS login page.
-Do not reset or change existing account passwords. No NILES configuration, database or container mutation authorized.
-No new database schema required by this UX package. Human user acceptance remains separate from synthetic automated tests.
+KS GRC isolated pilot deployment
+Date: 2026-11-06
+Source: e81e10a1adeff37434a2017635156c583c5a9b91 (PR #9)
+Tested application tree: 6e450e5a9253f06f769b37f6adcd4e4c5ac8b2ed
+Pilot release: structured audit scope and closure, risk statement catalog and register, assessments, risk treatment and decisions.
+Validation: 75 unit/API tests, 30 Chromium checks, authenticated DAST, dependency, source and container scans.
+CI: https://github.com/Gokhanagingil/control/actions/runs/42185428168
+Security: https://github.com/Gokhanagingil/control/actions/runs/42185428178
+Target: existing isolated control-grc Docker project and data under /opt/control-grc. Back up prior data and smoke-test the pilot after migration.
+The company deployment profile and real Entra tenant acceptance are documented in enterprise/README.md. This deployment is to the pilot only.
