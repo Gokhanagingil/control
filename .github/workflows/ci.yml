@@ -14,7 +14,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install hash-locked runtime dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - name: Compile
         run: python -m compileall -q app.py ui.py ui_v2.py identity.py bootstrap.py backup.py execution_service.py seed_reference.py seed_itil.py grc_plus.py grc_excel.py xlsx_io.py tests scripts
       - name: Validate browser JavaScript

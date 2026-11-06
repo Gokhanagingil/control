@@ -31,7 +31,7 @@ def existing_id(db, table, where, args):
     return value["id"] if value else None
 
 
-def seed():
+def seed(catalog_only=False):
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     scenario = json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))
     if catalog["data_classification"] != "SIMULATED_NON_PRODUCTION":
@@ -46,7 +46,7 @@ def seed():
         db.execute("""CREATE TABLE IF NOT EXISTS seed_runs (
             key TEXT PRIMARY KEY, applied_at TEXT NOT NULL, summary_json TEXT NOT NULL)""")
         prev = db.execute("SELECT summary_json FROM seed_runs WHERE key=?", (SEED_KEY,)).fetchone()
-        if prev:
+        if prev and not catalog_only:
             return {"skipped": True, "summary": json.loads(prev["summary_json"])}
         standard_ids = {}
         clause_ids = {}
@@ -75,6 +75,8 @@ def seed():
                             WHERE id=? AND parent_id IS NULL""",
                             (clauses_by_code[parent], clauses_by_code[key]))
 
+        if catalog_only:
+            return {"standards_added":counters["standards"], "clauses_added":counters["clauses"]}
         process_ids = {}
         for code, name, owner, description in scenario["processes"]:
             ident = existing_id(db, "processes", "code=?", (code,))
@@ -237,8 +239,10 @@ def seed():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import synthetic KS GRC UAT catalog/data once")
-    parser.add_argument("--apply", action="store_true", help="Required explicit opt-in")
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--apply", action="store_true", help="Install the synthetic pilot data")
+    mode.add_argument("--catalog-only", action="store_true", help="Install only reference standard headings")
     args = parser.parse_args()
-    if not args.apply:
-        parser.error("Add --apply to import the synthetic reference dataset")
-    print(json.dumps(seed(), ensure_ascii=False))
+    if args.apply and os.getenv("CONTROL_AUTH_MODE")=="entra":
+        parser.error("Use --catalog-only in the enterprise profile")
+    print(json.dumps(seed(catalog_only=args.catalog_only), ensure_ascii=False))

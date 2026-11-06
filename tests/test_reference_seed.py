@@ -23,6 +23,13 @@ class ReferenceSeedTests(unittest.TestCase):
         app.EVIDENCE_DIR = self.old_files
         self.root.cleanup()
 
+    def test_catalog_only_creates_no_audit_results_or_evidence(self):
+        self.assertEqual(seed_reference.seed(catalog_only=True), {"standards_added":2,"clauses_added":144})
+        self.assertEqual(seed_reference.seed(catalog_only=True), {"standards_added":0,"clauses_added":0})
+        with app.connect() as db:
+            for table in ("controls","audits","executions","evidence","risks"):
+                self.assertEqual(db.execute(f"SELECT count(*) FROM {table}").fetchone()[0],0)
+
     def test_data_catalog_and_idempotency(self):
         result = seed_reference.seed()
         summary = result["summary"]

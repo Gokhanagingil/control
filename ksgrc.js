@@ -661,6 +661,7 @@ async function riskForm(record=null,template=null){
   const res=await api(record?'risks/'+record.id:'risks',{method:record?'PATCH':'POST',body:JSON.stringify(data)});
   invalidate('risks');await navigate('risks');await openRecord('risks',record?.id||res.id);toast('Risk kaydedildi');
  }],['Vazgeç',()=>record?openRecord('risks',record.id):closeDetail(),'secondary']]);
+ for(const option of [...control('status').options])if(['accepted','closed'].includes(option.value))option.remove();
  if(!record&&!defaults.response_strategy)control('response_strategy').value='';
  const preview=()=>{$('riskPreview').textContent=['cause','risk_event','consequence'].map(k=>control(k).value.trim()).filter(Boolean).join(' → ')||'Neden, olay ve iş etkisini girince risk ifadesi burada görünür.'};
  for(const k of ['cause','risk_event','consequence'])control(k).oninput=preview;
@@ -684,18 +685,45 @@ async function riskDetail(rec,footer){
   '<p>'+esc(a.assessor)+' · '+esc(a.rationale)+'</p><p>İçsel '+a.inherent+' · İştah '+a.appetite+' · Varlık / hizmet '+esc(a.snapshot.entity_name)+'</p>'+
   '<p>'+esc([a.snapshot.cause,a.snapshot.risk_event,a.snapshot.consequence].join(' → '))+'</p>'+
   a.snapshot.credits.map(c=>'<div>'+esc(c.code)+' · Çalışma #'+c.run_id+' · Katkı %'+Math.round(100*c.contribution)+'</div>').join('')+'</details>').join('');
+ const sealed=['accepted','closed'].includes(rec.status);
+ const decisionHistory=(ctx.decisions||[]).map(d=>'<li><b>'+esc(chosen('risks','status',d.to_status))+'</b> · '+esc(d.actor)+' · '+esc(d.decided_at)+
+  '<p>'+esc(d.rationale)+'</p>'+(d.exception_rationale?'<p>İştah istisnası · '+esc(d.exception_rationale)+'</p>':'')+
+  (d.assessment_id?'<small>Dayanak değerlendirme #'+d.assessment_id+'</small>':'')+'</li>').join('');
+ const decisionButtons=sealed?[['Yeniden aç',()=>riskDecision(rec,ctx,'open')]]:[
+  ['Kabul kararı',()=>riskDecision(rec,ctx,'accepted'),'secondary'],['Kapanış kararı',()=>riskDecision(rec,ctx,'closed'),'secondary']];
  const k=['catalog_id','description','category','response_strategy','treatment','due_date','review_date','status'];
  const facts=Object.fromEntries(k.map(key=>[key,rec[key]]));
  drawer('Risk • '+rec.code,panel+values('risks',facts)+
+  '<section class="detail-section"><h3>Karar geçmişi</h3>'+(decisionHistory?'<ul class="mini-list">'+decisionHistory+'</ul>':'<p>Henüz karar kaydı yok.</p>')+'</section>'+
   '<section class="detail-section"><h3>Risk işleme faaliyetleri</h3>'+relatedRecords('actions',ctx.actions)+'</section>'+
   '<section class="detail-section"><h3>Değerlendirme geçmişi</h3>'+(history||'<p>Kaydedilmiş değerlendirme yok.</p>')+'</section>'+
-  checks('related_controls','Riski azaltan kontroller',all,ctx.controls,x=>x.code+' — '+x.name),[
+  (sealed?relatedRecords('controls',ctx.controls):checks('related_controls','Riski azaltan kontroller',all,ctx.controls,x=>x.code+' — '+x.name)),
+  [...(sealed?[]:[
    ['Riski değerlendir',()=>riskAssess(rec)],['İşleme faaliyeti aç',()=>createForm('actions',{risk_id:rec.id,owner:rec.owner}),'secondary'],
    ['Kontrolleri kaydet',async()=>{
     await api('risks/'+rec.id+'/controls',{method:'POST',body:JSON.stringify({control_ids:selected('related_controls')})});
     await openRecord('risks',rec.id,true);toast('Kontroller kaydedildi');
-   },'secondary'],...footer]);
+   },'secondary']]),...decisionButtons,...footer.filter(b=>!sealed||b[0]!=='Düzenle')]);
  bindChecks();
+}
+function riskDecision(rec,ctx,status){
+ const reopen=status==='open',accept=status==='accepted',last=ctx.assessments[0];
+ const exception=accept&&last?.residual>last?.appetite;
+ if(!reopen&&!last)return toast('Önce bir risk değerlendirmesi kaydedin.',false);
+ drawer(chosen('risks','status',status)+' · '+rec.code,
+  '<p class="intro">'+esc(rec.title)+'</p>'+
+  (!reopen?'<p class="notice">Dayanak değerlendirme #'+last.id+' · Artık risk '+last.residual+' · İştah eşiği '+last.appetite+'</p>':'')+
+  '<label class="field">Karar gerekçesi<textarea id="riskDecisionReason" required></textarea></label>'+
+  (accept?'<label class="field">Sonraki gözden geçirme<input id="riskReview" type="date" value="'+esc(rec.review_date||'')+'"></label>':'')+
+  (exception?'<label class="field">İştah üzeri kabulün istisna gerekçesi<textarea id="riskException" required></textarea></label><p>Kurumsal girişte bu istisnayı değerlendirmeyi yapan kişiden farklı bir yönetici onaylar.</p>':''),
+  [['Kararı kaydet',async()=>{
+   const body={status,decision_rationale:$('riskDecisionReason').value.trim()};
+   if(!reopen)body.assessment_id=last.id;
+   if(accept){body.response_strategy='accept';body.review_date=$('riskReview').value}
+   if(exception)body.exception_rationale=$('riskException').value.trim();
+   await api('risks/'+rec.id,{method:'PATCH',body:JSON.stringify(body)});
+   await navigate('risks');await openRecord('risks',rec.id);toast('Risk kararı kaydedildi');
+  }],['Vazgeç',()=>openRecord('risks',rec.id),'secondary']]);
 }
 async function riskAssess(rec){
  const ctx=await api('risks/'+rec.id+'/context');

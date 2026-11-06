@@ -544,7 +544,9 @@ def _respond_download(handler,raw,filename,content_type):
 
 
 def _error(handler,exc):
-    if isinstance(exc,StaleAudit):
+    if isinstance(exc,risk_management.ApprovalDenied):
+        handler.respond(403,{"error":str(exc)})
+    elif isinstance(exc,StaleAudit):
         handler.respond(409,{"error":str(exc)})
     elif isinstance(exc,(ValueError,sqlite3.IntegrityError,json.JSONDecodeError)):
         handler.respond(400,{"error":str(exc)[:350]})
@@ -975,6 +977,12 @@ def post(handler):
             if not isinstance(ids,list) or any(type(n)is not int for n in ids):
                 raise ValueError("Kontrol kimlikleri listesi gerekli")
             with app.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                risk=db.execute("SELECT status FROM risks WHERE id=?",(rid,)).fetchone()
+                if not risk:
+                    return handler.respond(404,{"error":"Risk bulunamadı"}) or True
+                if risk["status"] in risk_management.TERMINAL:
+                    raise ValueError("Bağlantıları değiştirmeden önce riski yeniden açın")
                 db.execute("DELETE FROM control_risks WHERE risk_id=?",(rid,))
                 for cid in ids:
                     db.execute("INSERT INTO control_risks(control_id,risk_id) VALUES(?,?)",(cid,rid))
@@ -1048,6 +1056,7 @@ def patch(handler):
             return True
         if len(parts)==3 and parts[0]=="api" and parts[1] in SCHEMA:
             table=parts[1];rid=int(parts[2]);data=json_body(handler)
+            details = {key:data.pop(key) for key in risk_management.DECISION_INPUT if key in data} if table=="risks" else {}
             if not data or set(data)-(set(SCHEMA[table])-{"created_at"}):
                 raise ValueError("Geçersiz güncelleme alanları")
             with app.connect() as db:
@@ -1059,7 +1068,9 @@ def patch(handler):
                 if table=="risks":
                     if "catalog_id" in data and data["catalog_id"]!=row["catalog_id"]:
                         raise ValueError("Riskin kaynak şablonu değiştirilemez")
-                    risk_management.decision(db,rid,dict(row),proposal)
+                    role = handler.current_user["app_role"] if app.ENTRA else "local-admin"
+                    risk_management.decision(db,rid,dict(row),proposal,details=details,
+                            actor=handler.current_user["username"],role=role,at=now())
                 setters=", ".join(f"{k}=?" for k in data)
                 cursor=db.execute(f"UPDATE {table} SET {setters} WHERE id=?",[*data.values(),rid])
                 if not cursor.rowcount:

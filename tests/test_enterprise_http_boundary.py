@@ -110,3 +110,39 @@ class EnterpriseBoundary(unittest.TestCase):
         self.assertEqual(self.request("PATCH",path,h,{"assessor":"forged","residual":0})[0],400)
         status, _, body = self.request("GET",path+"/context", h)
         self.assertEqual(len(json.loads(body)["assessments"]),1)
+
+    def test_risk_approval_uses_distinct_entra_principals_and_snapshots(self):
+        h={"Cookie":self.cookie,"Origin":ORIGIN}
+        data={"code":"EXC-HTTP","title":"Elevated risk","owner":"Team A","entity_name":"Payments",
+              "cause":"Patch delay","risk_event":"Exploit","consequence":"Outage","appetite":2,
+              "review_date":"2030-12-31","likelihood":4,"impact":3}
+        for field in ("entity_name","owner","cause"):
+            self.assertEqual(self.request("POST","/api/risks",h,{**data,field:" "})[0],400)
+        status,_,body=self.request("POST","/api/risks",h,data)
+        self.assertEqual(status,201)
+        path="/api/risks/"+str(json.loads(body)["id"])
+        status,_,body=self.request("POST",path+"/assessments",h,{"rationale":"Tested exposure","credits":[]})
+        self.assertEqual(status,201)
+        assessment_id=json.loads(body)["id"]
+        change={"status":"accepted","response_strategy":"accept","assessment_id":assessment_id,
+                "decision_rationale":"Reviewed by management","exception_rationale":"Temporary business acceptance"}
+        self.assertEqual(self.request("PATCH",path,h,change)[0],403)
+        # Each account is keyed by tenant + object ID, never a mutable display name.
+        with app.connect() as db:
+            second=identity.entra_account(db,TENANT,"dddddddd-dddd-4ddd-8ddd-dddddddddddd","Fixture")
+            cookie=identity.ENTERPRISE_COOKIE+"="+identity.new_session(db,second,scope=app.ENTRA.config.session_scope,
+                            role=entra_auth.ADMIN,expires=int(time.time()+300))
+            admin_name=db.execute("SELECT username FROM users WHERE id=?",(second,)).fetchone()[0]
+        admin={"Cookie":cookie,"Origin":ORIGIN}
+        self.assertEqual(self.request("PATCH",path,admin,{**change,"exception_rationale":""})[0],400)
+        self.assertEqual(self.request("PATCH",path,admin,{**change,"actor":"spoof"})[0],400)
+        self.assertEqual(self.request("PATCH",path,admin,change)[0],200)
+        ctx=json.loads(self.request("GET",path+"/context",h)[2])
+        self.assertEqual(len(ctx["decisions"]),1)
+        decision=ctx["decisions"][0]
+        self.assertEqual((decision["actor"],decision["assessment_id"],decision["residual"],decision["appetite"]),
+                         (admin_name,assessment_id,12,2))
+        self.assertEqual(self.request("POST",path+"/controls",h,{"control_ids":[]})[0],400)
+        self.assertEqual(self.request("POST",path+"/assessments",h,{"rationale":"Again","credits":[]})[0],400)
+        self.assertEqual(self.request("PATCH",path,admin,{"status":"open","decision_rationale":"Expired"})[0],200)
+        self.assertEqual(self.request("PATCH",path,admin,change)[0],400)  # prior assessment is now stale

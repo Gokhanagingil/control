@@ -1,4 +1,5 @@
 import base64
+import sqlite3
 import tempfile
 import unittest
 from datetime import date,timedelta
@@ -67,13 +68,57 @@ class RiskWorkspaceTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises(ValueError):self.evaluate([value])
         self.assertEqual(risk.context(self.db,self.rid)['assessments'],[])
 
-    def test_decisions_require_assessment_and_review_and_closed_actions(self):
+    def test_decision_guards_and_explicit_independent_exception(self):
         previous=dict(self.db.execute('SELECT * FROM risks WHERE id=?',(self.rid,)).fetchone())
-        accept={**previous,'status':'accepted','response_strategy':'accept','treatment':'Yetkili risk sahibi takip edecek.'}
-        with self.assertRaises(ValueError):risk.decision(self.db,self.rid,previous,accept)
+        accept={**previous,'status':'accepted','response_strategy':'accept'}
+        options=dict(actor="auditor",role="KS.GRC.Admin",at=app.utcnow(),
+                     details={"decision_rationale":"Management approved","exception_rationale":"Temporary exposure","assessment_id":1})
+        def decide(proposal,**changes):
+            risk.decision(self.db,self.rid,previous,proposal,**{**options,**changes})
+        with self.assertRaises(ValueError):decide(accept)
         self.evaluate([])
-        risk.decision(self.db,self.rid,previous,accept)
-        for data in ({'review_date':'2000-01-01'},{'impact':1}):
-            with self.assertRaises(ValueError):risk.decision(self.db,self.rid,previous,{**accept,**data})
+        with self.assertRaises(risk.ApprovalDenied):decide(accept)  # same assessor
+        with self.assertRaises(risk.ApprovalDenied):decide(accept,actor="other",role="KS.GRC.Auditor")
+        for fields in ({"assessment_id":1,"decision_rationale":"ok"},
+                       {"assessment_id":1234,"decision_rationale":"ok","exception_rationale":"why"}):
+            with self.assertRaises(ValueError):decide(accept,actor="other",details=fields)
+        for changes in ({'review_date':'2000-01-01'},{'impact':1}):
+            with self.assertRaises(ValueError):decide({**accept,**changes},actor='other')
         app.insert(self.db,'actions',{'code':'A1','title':'Kurtarma testi','risk_id':self.rid,'created_at':app.utcnow()})
-        with self.assertRaises(ValueError):risk.decision(self.db,self.rid,previous,{**accept,'status':'closed'})
+        with self.assertRaises(ValueError):decide({**accept,'status':'closed'},actor='other')
+        self.assertEqual(risk.context(self.db,self.rid)["decisions"],[])
+        decide(accept,actor="approving-admin")
+        self.db.execute("UPDATE risks SET status='accepted',response_strategy='accept' WHERE id=?",(self.rid,))
+        ctx=risk.context(self.db,self.rid)
+        decision=ctx["decisions"][0]
+        self.assertEqual((decision["actor"],decision["actor_role"],decision["residual"],decision["appetite"]),
+                         ("approving-admin","KS.GRC.Admin",20,10))
+        self.assertEqual((decision["from_status"],decision["to_status"],decision["assessment_id"],
+                decision["exception_rationale"]),("open","accepted",1,"Temporary exposure"))
+        with self.assertRaises(ValueError):self.evaluate([])
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("DELETE FROM control_risks WHERE risk_id=?",(self.rid,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE actions SET risk_id=NULL WHERE code='A1'")
+        for table in ("risk_decisions","risk_assessments"):
+            with self.assertRaises(sqlite3.IntegrityError):self.db.execute(f"DELETE FROM {table}")
+            with self.assertRaises(sqlite3.IntegrityError):self.db.execute(f"UPDATE {table} SET id=id")
+        previous=accept
+        reopen={**accept,"status":"open"}
+        decide(reopen,details={"decision_rationale":"New incident"})
+        self.db.execute("UPDATE risks SET status='open' WHERE id=?",(self.rid,))
+        previous=reopen
+        with self.assertRaisesRegex(ValueError,"yeni değerlendirme"):decide(accept,actor="approving-admin")
+        self.assertEqual(len(risk.context(self.db,self.rid)["decisions"]),2)
+
+    def test_closure_within_appetite_records_rationale_assessor_and_review(self):
+        self.db.execute("UPDATE risks SET appetite=20 WHERE id=?",(self.rid,))
+        assessment=self.evaluate([])
+        row=dict(self.db.execute("SELECT * FROM risks WHERE id=?",(self.rid,)).fetchone())
+        risk.decision(self.db,self.rid,row,{**row,"status":"closed"},actor="owner",
+                      role="KS.GRC.Auditor",at="2026-11-06T09:00:00Z",
+                      details={"assessment_id":assessment["id"],"decision_rationale":"Service retired"})
+        decision=risk.context(self.db,self.rid)["decisions"][0]
+        self.assertEqual((decision["actor"],decision["decided_at"],decision["rationale"],decision["assessment_id"]),
+                         ("owner","2026-11-06T09:00:00Z","Service retired",assessment["id"]))
+        self.assertIsNone(decision["exception_rationale"])

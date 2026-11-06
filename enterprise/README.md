@@ -12,6 +12,14 @@ docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml config
 docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml up -d --build --wait
 ```
 
+   İsteğe bağlı olarak ISO/IEC 20000-1 ve seçili CIS v8.1 referans madde başlıklarını yükleyebilirsiniz. Madde başlıklarını kuruluşun lisanslı standart metniyle doğrulayın. Bu komut denetim, test sonucu veya kanıt oluşturmaz.
+
+   ```bash
+   docker compose --env-file /etc/ks-grc/settings -f compose.enterprise.yaml exec -T app python seed_reference.py --catalog-only
+   ```
+
 5. HTTPS üzerinden atanmış Entra kullanıcısıyla giriş yapın. Entra oturum açma günlüğünde doğru Conditional Access politikasını ve MFA'nın karşılanmasını doğrulayın. Atanmamış kullanıcı, yanlış kiracı, MFA bağlamı eksik token ve yerel parola girişi reddedilmeli. Kurumsal MCP'den test kanıtı/yürütmesi gönderin, kullanıcı yönetimine erişiminin reddedildiğini görün. İmaj taraması veya bu kontrollerde açık bulgu varsa üretim onayını kapatmayın.
 6. SQLite volume'u ve harici yedekleri şifreli depolamada tutun. Kanıt ve kişisel verileri içerebilen yedekler için süreli saklama, erişim izleri ve geri yükleme testi uygulayın. `backup.py` ZIP'i şifrelemez. Canlı pilottan yeni ortama kişisel veri veya test kanıtı taşımak ayrı bir operatör kararıdır. Taşımada eski oturumları sonlandırın ve entegrasyon sırlarını döndürün. Mevcut migration ve geri yükleme adımları [dağıtım kılavuzunda](../DEPLOYMENT.md).
 7. Her sürümde yeni CVE veritabanıyla taramayı tekrarlayın. CI, Dockerfile/çalışma dizini ile derlediği imajı tarar ve imajın CycloneDX SBOM'unu yayımlar. İmajda tek bir yüksek veya kritik bulgu (düzeltmesi çıkmamış olanlar dahil) dağıtım kapısını başarısız kılar. Depo ayarlarında iki CI işini zorunlu branch protection kontrolleri olarak seçin. CI yürütmesi manuel şirket onayının yerine geçmez.
+
+**Yedek kabul sınırları.** Geri yükleme varsayılan olarak toplam açılmış boyutu 16 GiB ile sınırlar; daha büyük güvenilen arşivlerde disk kapasitesini kontrol ettikten sonra `--max-restore-bytes` ile artırabilirsiniz. Manifest 8 MiB, giriş sayısı 50.000 ile sınırlıdır. Başarısız geri yükleme oluşturduğu hedefi temizler. SHA-256 manifesti arşivin kaynağını doğrulamaz. Kaynak doğrulaması için kurumun erişim kontrollü ve imzalı veya kimlik doğrulamalı şifreli yedek sistemini kullanın.

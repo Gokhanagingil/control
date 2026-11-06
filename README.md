@@ -2,7 +2,7 @@
 
 Türkçe, küçük GRC ekibi için denetim–kontrol–kanıt uygulaması. Python 3.12, SQLite ve Entra kimlik doğrulaması için hash ile sabitlenmiş Python paketleri; tarayıcı istemcisi ek frontend derleme gerektirmez. ServiceNow veya Dynamics'e doğrudan bağlanmaz. Mevcut MCP uygulaması kaynak sistemleri sorgular ve burada belgelenen REST API'ye sonuç yazar.
 
-Şirket sunucusunda kurulum için [kurumsal dağıtım rehberini](enterprise/README.md) kullanın.
+Denetim ve risk modüllerini kullanmak için [iş akışları](docs/DENETIM_VE_RISK.md) sayfasına bakın. Şirket sunucusunda kurulum için [kurumsal dağıtım rehberini](enterprise/README.md) kullanın.
 
 ## Mevcut kapsam
 
@@ -56,4 +56,4 @@ Tarayıcı testi yalnızca geçici sentetik veri tabanında çalışır; gerçek
 Güncel API sözleşmesi: `docs/MCP_CONTRACT_AND_ACCEPTANCE.md`.
 NILES'tan bağımsız dağıtım ve yedek/geri yükleme: `DEPLOYMENT.md`.
 
-Kalıcı adrese geçişte uygulama kodu, SQLite veritabanı, kanıt dosyaları ve güvenli ortam yapılandırması birlikte taşınır. Geçici Cloudflare HTTPS adresi kalıcı alan adı değildir. Uygulama hâlen sınırlı ekip/staging MVP'sidir; antivirüs taraması, kurumsal SSO, WORM saklama, ayrıntılı RBAC ve dış ortam yedek politikası uygulanmış değildir.
+Kalıcı adrese geçişte uygulama kodu, SQLite veritabanı, kanıt dosyaları ve güvenli ortam yapılandırması birlikte taşınır. Geçici Cloudflare HTTPS adresi kalıcı alan adı değildir. Kurumsal profil tek kiracılı Entra oturumu, denetçi ve yönetici rolleri kullanır. Kanıtlarda dosya türü ve bütünlük kontrolü vardır. Kurumun zararlı yazılım taraması, değiştirilemez arşiv ihtiyacı, disk şifreleme ve yedek saklama politikası hedef ortamda ele alınmalıdır.

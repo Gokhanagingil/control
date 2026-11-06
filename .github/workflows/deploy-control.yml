@@ -22,7 +22,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install hash-locked runtime dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - name: Validate application before connecting to NILES host
         run: |
           set -euo pipefail

@@ -151,8 +151,8 @@ class AuditWorkspaceTests(unittest.TestCase):
         with app.connect() as db:
             catalog=app.insert(db,"risk_catalog",{"code":"CUSTOM","title":"Custom","cause":"Power cut",
                   "risk_event":"Overheat","consequence":"Loss of service","likelihood":2,"impact":4})
-            pages={"Riskler":[["Kod","Başlık","catalog_id","Kaynak katalog kodu","appetite","cause","risk_event","consequence"],
-                ["R-90","Server power","987654","CUSTOM","4","Power cut","Overheat","Loss of service"]]}
+            pages={"Riskler":[["Kod","Başlık","catalog_id","Kaynak katalog kodu","appetite","cause","risk_event","consequence","owner","entity_name"],
+                ["R-90","Server power","987654","CUSTOM","4","Power cut","Overheat","Loss of service","Operations","Server"]]}
             def load():
                 return grc_excel.import_xlsx(db,{"content_base64":base64.b64encode(xlsx_io.make_xlsx(pages)).decode()},"risks")
             self.assertEqual(load()["risks"]["inserted"],1)
@@ -164,6 +164,6 @@ class AuditWorkspaceTests(unittest.TestCase):
             pages["Riskler"][0].append("Durum")
             pages["Riskler"][1][3]="CUSTOM"
             for state in ("accepted","closed"):
-                pages["Riskler"][1][8:]=[state]
+                pages["Riskler"][1][10:]=[state]
                 with self.assertRaisesRegex(ValueError,"karar"):load()
 
