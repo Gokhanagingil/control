@@ -1,10 +1,9 @@
 KS GRC isolated pilot deployment
 Date: 2026-11-06
-Source: e81e10a1adeff37434a2017635156c583c5a9b91 (PR #9)
-Tested application tree: 6e450e5a9253f06f769b37f6adcd4e4c5ac8b2ed
-Pilot release: structured audit scope and closure, risk statement catalog and register, assessments, risk treatment and decisions.
-Validation: 75 unit/API tests, 30 Chromium checks, authenticated DAST, dependency, source and container scans.
-CI: https://github.com/Gokhanagingil/control/actions/runs/42185428168
-Security: https://github.com/Gokhanagingil/control/actions/runs/42185428178
-Target: existing isolated control-grc Docker project and data under /opt/control-grc. Back up prior data and smoke-test the pilot after migration.
-The company deployment profile and real Entra tenant acceptance are documented in enterprise/README.md. This deployment is to the pilot only.
+Source: a2306578ca8acba129e4af1f822bf99d5144b94b (PR #10)
+Verified tree: 473f9d26babb7fe08d75b0948d8fa6ba3d8ea48b
+Change: publish the single illustrated audit, controls, risk and access map. The file served to the signed-in session and downloaded for sharing is the same SVG.
+Tests: 77 unit/API tests; 34 Chromium checkpoints including diagram semantics, navigation, keyboard, mobile pan and complete export. ZAP: 20/20 read paths plus an evidence write; no high, medium or low alerts.
+CI: https://github.com/Gokhanagingil/control/actions/runs/42188083157
+Security: https://github.com/Gokhanagingil/control/actions/runs/42188083215
+Target: existing isolated control-grc project and /opt/control-grc data. Verify backup, running SVG bytes, API health, other container lifecycles and external pilot login.
