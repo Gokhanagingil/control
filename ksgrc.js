@@ -5,11 +5,11 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const LABELS={home:'Genel Bakış',compliance:'Uyumluluk Panosu',architecture:'Mimari Harita',admin:'Yönetim',
  controls:'Kontroller',objectives:'Kontrol Hedefleri',audits:'Denetimler',findings:'Bulgular',
  evidence:'Kanıt Kütüphanesi',executions:'Kontrol Sonuçları',standards:'Standartlar',
- clauses:'Standart Maddeleri',processes:'Süreçler',risks:'Riskler',actions:'Düzeltici Faaliyetler',documents:'Dokümanlar'};
+ clauses:'Standart Maddeleri',processes:'Süreçler',risks:'Riskler',risk_catalog:'Risk Kataloğu',actions:'Düzeltici Faaliyetler',documents:'Dokümanlar'};
 const MENU=[
  ['GENEL',[['home','▦'],['compliance','◉']]],
  ['KONTROL VE GÜVENCE',[['controls','☑'],['objectives','◇'],['audits','▤'],['findings','⚑'],['evidence','▱'],['executions','✓']]],
- ['KURUMSAL KATALOG',[['standards','◫'],['clauses','≡'],['processes','⇄'],['risks','△'],['actions','↗'],['documents','▧']]],
+ ['KURUMSAL KATALOG',[['standards','◫'],['clauses','≡'],['processes','⇄'],['risk_catalog','◈'],['risks','△'],['actions','↗'],['documents','▧']]],
  ['SİSTEM',[['architecture','⌘'],['admin','⚙']]]
 ];
 const COLUMNS={
@@ -18,24 +18,25 @@ const COLUMNS={
  findings:['title','control_id','severity','status'],evidence:['title','file_name','source','status','collected_at'],
  executions:['control_id','status','source','executed_at'],standards:['code','name','version'],
  clauses:['code','title','standard_id'],processes:['code','name','owner'],
- risks:['code','title','likelihood','impact','status'],actions:['code','title','finding_id','due_date','status'],
+ risk_catalog:['code','title','category'],risks:['code','title','entity_name','owner','inherent_score','residual_score','review_date','status'],actions:['code','title','finding_id','due_date','status'],
  documents:['code','title','category','version','status']};
 const FORM={
  standards:['code','name','version','description'],clauses:['standard_id','code','title','parent_id','description'],
  processes:['code','name','owner','description'],objectives:['code','name','description'],
  controls:['code','name','description','execution_mode','nature','frequency','criticality','method_type','method','expected_result','owner','active'],
- audits:['name','scope','planned_start','planned_end','actual_start','actual_end','auditors','auditees','status'],
+ audits:['name','audit_objective','conclusion','scope','planned_start','planned_end','actual_start','actual_end','auditors','auditees','status'],
  evidence:['title','description','reference_url','source','confidentiality','status','period_start','period_end','expires_at'],
  findings:['title','control_id','audit_id','severity','status','description'],
- risks:['code','title','description','category','likelihood','impact','owner','status','treatment','due_date'],
- actions:['code','title','description','finding_id','control_id','owner','due_date','priority','status','resolution'],
+ risk_catalog:['code','title','category','cause','risk_event','consequence','likelihood','impact'],
+ risks:['code','title','description','catalog_id','entity_name','category','cause','risk_event','consequence','likelihood','impact','appetite','owner','status','response_strategy','treatment','due_date','review_date'],
+ actions:['code','title','description','finding_id','risk_id','control_id','owner','due_date','priority','status','resolution'],
  documents:['code','title','description','category','version','owner','status','reference_url']};
 const REQUIRED={standards:['code','name'],clauses:['standard_id','code','title'],processes:['code','name'],
  objectives:['code','name'],controls:['code','name'],audits:['name'],evidence:['title'],findings:['title'],
- risks:['code','title'],actions:['code','title'],documents:['code','title']};
-const REFS={standard_id:'standards',parent_id:'clauses',control_id:'controls',audit_id:'audits',finding_id:'findings'};
-const DATES=new Set(['planned_start','planned_end','actual_start','actual_end','due_date','period_start','period_end','expires_at']);
-const TEXTAREAS=new Set(['description','scope','method','expected_result','treatment','resolution']);
+ risk_catalog:['code','title','cause','risk_event','consequence'],risks:['code','title'],actions:['code','title'],documents:['code','title']};
+const REFS={catalog_id:'risk_catalog',risk_id:'risks',standard_id:'standards',parent_id:'clauses',control_id:'controls',audit_id:'audits',finding_id:'findings'};
+const DATES=new Set(['review_date','planned_start','planned_end','actual_start','actual_end','due_date','period_start','period_end','expires_at']);
+const TEXTAREAS=new Set(['cause','risk_event','consequence','description','scope','audit_objective','conclusion','method','expected_result','treatment','resolution']);
 const STATE={view:'home',cache:{},meta:{fields:{},choices:{}},search:'',page:0,detail:null,record:null,trail:[]};
 const PER_PAGE=40;
 async function api(path,init={}){
@@ -186,9 +187,10 @@ function auditFindingsSection(id,title,items,note){
 function actions(buttons){$('topActions').innerHTML='';for(const [text,handler,variant] of buttons){
  const b=document.createElement('button');b.className='btn '+(variant||'');b.textContent=text;b.onclick=handler;
  $('topActions').append(b)}}
+function canManage(){return STATE.user?.app_role !== 'KS.GRC.Auditor'}
 function navigation(){
  $('nav').innerHTML=MENU.map(([group,items])=>'<div class="nav-title">'+esc(group)+'</div>'+
- items.map(([v,ico])=>'<button class="nav-button '+(v===STATE.view?'active':'')+'" data-nav="'+v+'"><span class="nav-icon">'+ico+'</span>'+LABELS[v]+'</button>').join('')).join('');
+ items.filter(([v])=>v!=='admin'||canManage()).map(([v,ico])=>'<button class="nav-button '+(v===STATE.view?'active':'')+'" data-nav="'+v+'"><span class="nav-icon">'+ico+'</span>'+LABELS[v]+'</button>').join('')).join('');
  $('nav').querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>navigate(b.dataset.nav));
 }
 async function navigate(view){
@@ -209,15 +211,25 @@ async function navigate(view){
 }
 function tableHTML(table,source){
  const term=STATE.search.toLocaleLowerCase('tr');
- const results=source.filter(x=>Object.values(x).some(v=>String(v??'').toLocaleLowerCase('tr').includes(term)));
+ const today=new Date().toLocaleDateString('sv-SE');
+ const matchesRisk=r=>{switch(STATE.riskFilter){
+  case 'above':return r.residual_score!=null&&r.residual_score>r.assessed_appetite;
+  case 'pending':return r.residual_score==null;
+  case 'late':return r.status!=='closed'&&r.review_date&&r.review_date<today;
+  default:return true;
+ }};
+ const results=source.filter(r=>table!=='risks'||matchesRisk(r)).filter(x=>Object.values(x).some(v=>String(v??'').toLocaleLowerCase('tr').includes(term)));
  STATE.page=Math.min(STATE.page,Math.max(0,Math.ceil(results.length/PER_PAGE)-1));
  const items=results.slice(STATE.page*PER_PAGE,(STATE.page+1)*PER_PAGE);
  const cols=COLUMNS[table]||['code','title','status'];
  return '<div class="panel"><div class="panel-title"><h2>'+LABELS[table]+' <span class="muted">('+results.length+')</span></h2>'+
  '<span class="badge-note">Ayrıntı için satıra tıklayın · Enter ile de açılır</span></div><div class="toolbar">'+
+ (table==='risks'?'<label class="field">Risk görünümü<select id="riskFilter">'+
+  Object.entries({all:'Tüm riskler',above:'Son değerlendirmede iştahı aşanlar',pending:'Değerlendirme bekleyenler',late:'Gözden geçirmesi gecikenler'}).map(([v,t])=>
+   '<option value="'+v+'" '+(v===STATE.riskFilter?'selected':'')+'>'+t+'</option>').join('')+'</select></label>':'')+
  '<input id="tableSearch" class="searchbar" placeholder="Kayıt, kod veya açıklama ara…" value="'+esc(STATE.search)+'" aria-label="Kayıtlarda ara">'+
- '<div class="toolbar"><button class="btn secondary small" id="tableExport">Excel’e aktar</button>'+
- '<button class="btn secondary small" id="tableImport">Excel’den aktar</button></div></div>'+
+ '<div class="toolbar"><button class="btn secondary small" id="tableExport"'+(canManage()?'':' hidden')+'>Excel’e aktar</button>'+
+ '<button class="btn secondary small" id="tableImport"'+(canManage()?'':' hidden')+'>Excel’den aktar</button></div></div>'+
  '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+esc(label(c))+'</th>').join('')+'</tr></thead><tbody>'+
  items.map(x=>'<tr class="clickable" tabindex="0" aria-label="'+esc(titleOf(x)+' — ayrıntı')+'" data-row="'+x.id+'">'+cols.map((c,i)=>'<td'+(i===0?' class="cell-primary"':'')+'>'+showValue(table,c,x[c])+'</td>').join('')+
  '</tr>').join('')+
@@ -227,6 +239,7 @@ function tableHTML(table,source){
  '<button class="btn ghost small" id="next" '+((STATE.page+1)*PER_PAGE>=results.length?'disabled':'')+'>Sonraki</button></div></div></div>';
 }
 function bindTable(table){
+ if($('riskFilter'))$('riskFilter').onchange=e=>{STATE.riskFilter=e.target.value;STATE.page=0;refreshTable(table)};
  const input=$('tableSearch');input.oninput=e=>{
   const position=e.target.selectionStart;STATE.search=e.target.value;STATE.page=0;
   $('content').innerHTML=tableHTML(table,STATE.cache[table]);bindTable(table);
@@ -252,7 +265,7 @@ async function renderTable(table){
  $('content').innerHTML=tableHTML(table,records);bindTable(table);
  actions(table==='executions'?[['Kontrol sonucu kaydet',()=>executionForm()]]:
   table==='evidence'?[['Kanıt yükle',()=>evidenceForm()]]:
-  [['+ Yeni kayıt',()=>createForm(table)],['Excel’e aktar',()=>exportExcel(table),'secondary']]);
+  [[table==='audits'?'+ Yeni denetim':'+ Yeni kayıt',()=>createForm(table)],...(canManage()?[['Excel’e aktar',()=>exportExcel(table),'secondary']]:[])]);
 }
 async function exportExcel(table='all'){
  try{const blob=await api('excel/export?table='+encodeURIComponent(table));
@@ -281,7 +294,7 @@ async function fieldInput(table,key,value){
  const options=STATE.meta.choices?.[table]?.[key];
  let inner='';
  if(options){
-  inner='<select data-field="'+key+'"'+required+'>'+Object.entries(options).map(([v,t])=>
+  inner='<select data-field="'+key+'"'+required+'>'+(key==='response_strategy'?'<option value="">Henüz seçilmedi</option>':'')+Object.entries(options).map(([v,t])=>
    '<option value="'+esc(v)+'"'+(String(value??'')===v?' selected':'')+'>'+esc(t)+'</option>').join('')+'</select>';
  }else if(REFS[key]){
   const refs=await list(REFS[key]);
@@ -289,6 +302,8 @@ async function fieldInput(table,key,value){
    refs.map(x=>'<option value="'+x.id+'"'+(Number(value)===x.id?' selected':'')+'>'+esc((x.code?x.code+' — ':'')+titleOf(x))+'</option>').join('')+'</select>';
  }else if(TEXTAREAS.has(key)){
   inner='<textarea data-field="'+key+'">'+esc(value||'')+'</textarea>';
+ }else if(key==='appetite'){
+  inner='<input data-field="appetite" type="number" min="1" max="25" step="1" placeholder="1–25" value="'+esc(value??'')+'">';
  }else if(key==='impact'||key==='likelihood'){
   inner='<select data-field="'+key+'">'+[1,2,3,4,5].map(i=>'<option value="'+i+'"'+(Number(value||3)===i?' selected':'')+'>'+i+'</option>').join('')+'</select>';
  }else inner='<input data-field="'+key+'" type="'+(DATES.has(key)?'date':'text')+'" value="'+esc(value??'')+'"'+required+'>';
@@ -301,13 +316,15 @@ function formValues(table,keys){
   let value=el.value.trim();
   if((REQUIRED[table]||[]).includes(key)&&!value)missing.push(label(key));
   if(REFS[key])value=value?Number(value):null;
-  if(['active','likelihood','impact'].includes(key)&&value!=='')value=Number(value);
+  if(['active','likelihood','impact','appetite'].includes(key)&&value!=='')value=Number(value);
   if(value!==''&&value!==null)result[key]=value;
  }
  if(missing.length)throw Error('Zorunlu alanlar: '+missing.join(', '));
  return result;
 }
 async function createForm(table,defaults={}){
+ if(table==='audits')return auditForm();
+ if(table==='risks')return riskForm();
  if(table==='evidence')return evidenceForm();
  if(table==='executions')return executionForm();
  const names=FORM[table];if(!names)return;
@@ -322,6 +339,8 @@ async function createForm(table,defaults={}){
  }catch(e){toast(e.message,false)}
 }
 async function editForm(table,record){
+ if(table==='audits')return auditForm(record.id);
+ if(table==='risks')return riskForm(record);
  const blocked=table==='findings'?['control_id','audit_id']:table==='clauses'?['standard_id']:
  table==='evidence'?['source']:[];
  const keys=(FORM[table]||[]).filter(k=>!blocked.includes(k));
@@ -369,7 +388,9 @@ async function openRecord(table,id,keepTrail=false){
   if(table==='audits')return detailAudit(record,html,footer);
   if(table==='evidence')return detailEvidence(record,html,footer);
   if(table==='findings'||table==='executions')return detailExecution(table,record,html,footer);
-  if(table==='risks'||table==='documents')return detailLinked(table,record,html,footer);
+  if(table==='risk_catalog')return drawer('Katalog • '+record.title,html,[['Bu şablondan risk aç',()=>riskForm(null,record)],...footer]);
+  if(table==='risks'){await list('risk_catalog');return riskDetail(record,footer)}
+  if(table==='documents')return detailLinked(table,record,html,footer);
   if(table==='standards')return detailStandard(record,html,footer);
   drawer(LABELS[table]+' • '+titleOf(record),html,footer);
  }catch(e){toast(e.message,false)}
@@ -398,17 +419,21 @@ async function detailControl(rec,basic,footer){
 async function detailAudit(rec,basic,footer){
  const [ctx,evidence,all]=await Promise.all([
   api('audits/'+rec.id+'/context'),api('audits/'+rec.id+'/evidence'),list('evidence',true)]);
- const scopeHtml='<details class="detail-section"><summary>Kapsamdaki standart maddeleri ('+ctx.clauses.length+')</summary>'+
+ const scopeHtml='<section class="detail-section" id="auditCriteria"><h3>Denetim kriterleri</h3>'+
+  (ctx.standards.length?chips(ctx.standards,s=>s.code):'<p class="muted">Standart seçilmemiş.</p>')+'</section><details class="detail-section"><summary>Kapsamdaki standart maddeleri ('+ctx.clauses.length+')</summary>'+
   relatedRecords('clauses',ctx.clauses,c=>c.standard_code+' '+c.code+' — '+c.title)+'</details>';
  const findings=auditFindingsSection('auditFindings','Bu denetimin bulguları',ctx.findings,
   'Doğrudan bu denetime veya bu denetimdeki kontrol çalışmasına bağlı bulgular; kapalı kayıtlar da dahildir.')+
   auditFindingsSection('auditOtherFindings','Kapsamdaki kontrollerin diğer açık bulguları',ctx.other_open_findings,
   'Başka denetimlerden veya denetim dışı çalışmalardan gelen açık bulgular. Bu denetimde açılmış sayılmaz; kaynak bağlantısı korunur.');
+ const planNote=ctx.plan_captured_at?'Kontrol kapsamı kaydedildi · '+esc(ctx.plan_captured_at):
+  ['closed','completed','cancelled'].includes(rec.status)?'Kapanış anına ait kapsam kaydı bulunmuyor. Kontrol eşlemeleri güncel katalogdan gösterilir.':'Planlanan kontroller kapsam maddelerinin güncel eşlemelerinden gelir.';
  const linked=checks('audit_evidence','Bu denetimin kanıtları',all,evidence,x=>x.title);
  drawer('Denetim • '+rec.name,
- '<div class="notice"><b>'+ctx.finding_summary.total+' bulgu</b> · '+ctx.finding_summary.open+' açık · '+ctx.finding_summary.other_open+' diğer açık bulgu</div>'+findings+basic+scopeHtml+
- '<details class="detail-section"><summary>Kapsam / çalışma kontrolleri ('+ctx.controls.length+')</summary>'+
- relatedRecords('controls',ctx.controls,c=>c.code+' — '+c.name)+'</details>'+linked,
+ '<div class="notice"><b>'+ctx.finding_summary.total+' bulgu</b> · '+ctx.finding_summary.open+' açık · '+ctx.finding_summary.other_open+' diğer açık bulgu</div>'+scopeHtml+basic+findings+
+ '<details class="detail-section"><summary>Kapsamdaki kontroller ('+ctx.planned_controls.length+')</summary>'+
+ '<p class="intro">'+planNote+'</p>'+relatedRecords('controls',ctx.planned_controls,c=>c.code+' — '+c.name)+'</details>'+
+ (ctx.tested_outside_scope.length?'<details class="detail-section"><summary>Kapsam dışında çalıştırılan kontroller ('+ctx.tested_outside_scope.length+')</summary>'+relatedRecords('controls',ctx.tested_outside_scope,c=>c.code+' — '+c.name)+'</details>':'')+linked,
  [['Kanıtları kaydet',async()=>{
   await api('audits/'+rec.id+'/evidence',{method:'POST',body:JSON.stringify({evidence_ids:selected('audit_evidence')})});
   toast('Denetim kanıtları kaydedildi');await openRecord('audits',rec.id,true);
@@ -487,7 +512,7 @@ async function detailStandard(rec,basic,footer){
   '<div class="detail-section"><h3>Madde kataloğu ('+clauses.length+')</h3><div class="link-box">'+
   clauses.map(c=>'<div class="link-option">'+esc(c.code+' — '+c.title)+'</div>').join('')+
   '</div></div><div class="notice">Maddeler çalışma başlığıdır; telifli resmî gereklilik metninin yerini tutmaz.</div>',
- [['Bu standart için denetim başlat',()=>auditWizard(rec.id)],...footer]);
+ [['Bu standart için denetim başlat',()=>auditForm(null,rec.id)],...footer]);
 }
 async function detailLinked(table,rec,basic,footer){
  const linked=await api(table+'/'+rec.id+'/controls');
@@ -558,23 +583,147 @@ async function executionForm(preselect=null){
   }catch(e){toast(e.message,false)}
  }],['Vazgeç',closeDetail,'secondary']]);bindChecks();
 }
-async function auditWizard(selectedStandard=null){
- const standards=await list('standards');
- const html='<div class="notice">Seçilen standardın mevcut tüm maddeleri yeni denetimin kapsamına otomatik eklenecek.</div>'+
- '<label class="field">Standart<select id="auditStandard">'+standards.map(s=>
-  '<option value="'+s.id+'"'+(s.id===selectedStandard?' selected':'')+'>'+esc(s.code+' — '+s.name)+'</option>').join('')+'</select></label>'+
- '<label class="field">Denetim adı<input id="auditName" placeholder="2026 İç Denetim"></label>'+
- '<div class="formgrid"><label class="field">Planlanan başlangıç<input id="auditStart" type="date"></label>'+
- '<label class="field">Planlanan bitiş<input id="auditEnd" type="date"></label></div>';
- drawer('Standarttan denetim oluştur',html,[['Denetimi oluştur',async()=>{
-  if(!$('auditName').value.trim())return toast('Denetim adı gerekli',false);
-  try{const saved=await api('audits/from-standard',{method:'POST',body:JSON.stringify({
-    standard_id:Number($('auditStandard').value),name:$('auditName').value.trim(),
-    planned_start:$('auditStart').value,planned_end:$('auditEnd').value})});
-   invalidate('audits');toast(saved.clause_count+' maddeyle denetim oluşturuldu');
-   await navigate('audits');openRecord('audits',saved.audit_id)
-  }catch(e){toast(e.message,false)}
- }],['Vazgeç',closeDetail,'secondary']]);
+async function auditForm(id=null,preselected=null){
+ const [catalog,rec]=await Promise.all([api('audits/scope-catalog'),id?api('audits/'+id+'/context'):{}]);
+ const locked=['completed','closed','cancelled'].includes(rec.status);
+ const standards=new Set(rec.standards?.map(s=>s.id)||(preselected?[preselected]:[]));
+ const clauses=new Set(rec.clauses?.map(c=>c.id)||catalog.clauses.filter(c=>c.standard_id===preselected).map(c=>c.id));
+ const fields=async keys=>(await Promise.all(keys.map(k=>fieldInput('audits',k,rec[k])))).join('');
+ const name=(await fields(['name'])).replace('data-field="name"','id="auditName" data-field="name"');
+ const html='<div class="formgrid">'+name+await fields(['status','audit_objective'])+'</div>'+
+  '<section class="detail-section"><h3>Denetim kriterleri</h3><p class="intro">'+
+  (locked?'Bu aşamada denetim kapsamı kilitlidir.':'Bir veya birden fazla standart seçin. Seçilen standardın mevcut maddeleri kapsama eklenir. İsterseniz maddeleri tek tek çıkarabilirsiniz.')+'</p>'+
+  '<div id="auditStandards">'+(catalog.standards.map(s=>'<label class="link-option"><input type="checkbox" data-std="'+s.id+'" '+
+    (standards.has(s.id)?'checked ':'')+(locked?'disabled':'')+'><span>'+esc(s.code+' — '+s.name)+'</span></label>').join('')||'Standart kataloğu boş.')+'</div>'+
+  '<div id="auditClauses"></div></section><div class="formgrid">'+await fields(['scope','planned_start','planned_end','actual_start','actual_end','auditors','auditees','conclusion'])+'</div>';
+ drawer(id?'Denetim planını düzenle':'Yeni denetim',html,[[id?'Değişiklikleri kaydet':'Denetimi oluştur',async()=>{
+  const payload=formValues('audits',FORM.audits);
+  if(id){
+   for(const k of FORM.audits)if(rec[k]&&!payload[k])payload[k]='';
+   payload.expected_revision=rec.revision;
+  }
+  if(!locked){payload.standard_ids=[...standards];payload.clause_ids=[...clauses]}
+  const result=await api(id?'audits/'+id:'audits',{method:id?'PATCH':'POST',body:JSON.stringify(payload)});
+  invalidate('audits');await navigate('audits');await openRecord('audits',id||result.id);toast('Denetim kaydedildi');
+ }],['Vazgeç',()=>id?openRecord('audits',id,true):closeDetail(),'secondary']]);
+ if(locked)$('detailContent').querySelector('[data-field=scope]').disabled=true;
+ const render=()=>{
+  $('auditClauses').innerHTML=catalog.standards.filter(s=>standards.has(s.id)).map(s=>{
+   const items=catalog.clauses.filter(c=>c.standard_id===s.id);
+   return '<details class="detail-section" open><summary>'+esc(s.code)+' · <span data-count="'+s.id+'"></span></summary>'+
+    (items.length?'<div class="toolbar"><button type="button" class="btn ghost small" data-all="'+s.id+'" '+(locked?'disabled':'')+'>Tümünü seç</button>'+
+     '<button type="button" class="btn ghost small" data-none="'+s.id+'" '+(locked?'disabled':'')+'>Seçimi temizle</button></div>'+
+     checks('scope_'+s.id,'Kapsamdaki maddeler',items,[...clauses],c=>c.code+' — '+c.title):'<p>Bu standardın katalogda maddesi yok.</p>')+'</details>';
+  }).join('');
+  if(locked)$('auditClauses').querySelectorAll('input[type=checkbox]').forEach(el=>el.disabled=true);
+  bindChecks();count();
+ };
+ const count=()=>$('auditClauses').querySelectorAll('[data-count]').forEach(el=>{
+  const items=catalog.clauses.filter(c=>c.standard_id===Number(el.dataset.count));
+  el.textContent=items.filter(c=>clauses.has(c.id)).length+' / '+items.length+' madde seçildi';
+ });
+ $('auditStandards').onchange=e=>{
+  const sid=Number(e.target.dataset.std);if(!sid||locked)return;
+  if(e.target.checked)standards.add(sid);else standards.delete(sid);
+  for(const c of catalog.clauses.filter(c=>c.standard_id===sid)){if(e.target.checked)clauses.add(c.id);else clauses.delete(c.id)}
+  render();
+ };
+ $('auditClauses').onchange=e=>{if(!e.target.dataset.link||locked)return;
+  const cid=Number(e.target.value);if(e.target.checked)clauses.add(cid);else clauses.delete(cid);count()};
+ $('auditClauses').onclick=e=>{
+  const {all,none}=e.target.dataset;if(!(all||none)||locked)return;
+  const sid=Number(all||none);
+  for(const c of catalog.clauses.filter(c=>c.standard_id===sid)){if(all)clauses.add(c.id);else clauses.delete(c.id)}
+  render();
+ };
+ render();
+}
+
+async function riskForm(record=null,template=null){
+ const catalogs=await list('risk_catalog',true);
+ const rec=record||{}, seed=template||{};
+ const defaults={...seed,code:'',catalog_id:template?.id,...rec};
+ const keys=FORM.risks;
+ const field=async k=>fieldInput('risks',k,defaults[k]);
+ const group=async(title,items)=>'<section class="detail-section"><h3>'+title+'</h3><div class="formgrid">'+(await Promise.all(items.map(field))).join('')+'</div></section>';
+ const html='<p class="intro">Katalogdan bir senaryo seçebilir veya bu varlığa özgü bir risk yazabilirsiniz.</p>'+
+  await group('Risk kaydı',['catalog_id','code','title','entity_name','category','owner'])+
+  await group('Risk ifadesi',['cause','risk_event','consequence'])+
+  '<p id="riskPreview" class="notice" aria-live="polite"></p>'+
+  await group('İçsel risk ve iştah',['likelihood','impact','appetite'])+
+  await group('İşleme ve takip',['response_strategy','treatment','due_date','review_date','status','description']);
+ const control=k=>$('detailContent').querySelector('[data-field="'+k+'"]');
+ drawer(record?'Riski düzenle':'Yeni risk kaydı',html,[['Kaydet',async()=>{
+  const data=formValues('risks',keys);
+  for(const k of ['entity_name','cause','risk_event','consequence','owner'])
+   if(!data[k])throw Error(label(k)+' gerekli');
+  if(record)for(const k of keys)if(rec[k]!=null&&!(k in data))data[k]=['catalog_id','appetite'].includes(k)?null:'';
+  const res=await api(record?'risks/'+record.id:'risks',{method:record?'PATCH':'POST',body:JSON.stringify(data)});
+  invalidate('risks');await navigate('risks');await openRecord('risks',record?.id||res.id);toast('Risk kaydedildi');
+ }],['Vazgeç',()=>record?openRecord('risks',record.id):closeDetail(),'secondary']]);
+ if(!record&&!defaults.response_strategy)control('response_strategy').value='';
+ const preview=()=>{$('riskPreview').textContent=['cause','risk_event','consequence'].map(k=>control(k).value.trim()).filter(Boolean).join(' → ')||'Neden, olay ve iş etkisini girince risk ifadesi burada görünür.'};
+ for(const k of ['cause','risk_event','consequence'])control(k).oninput=preview;
+ if(record)control('catalog_id').disabled=true;
+ control('catalog_id').onchange=()=>{
+  const t=catalogs.find(c=>c.id===Number(control('catalog_id').value));if(!t)return;
+  for(const k of ['title','category','cause','risk_event','consequence','likelihood','impact'])control(k).value=t[k];
+  preview();
+ };
+ preview();
+}
+async function riskDetail(rec,footer){
+ const [ctx,all]=await Promise.all([api('risks/'+rec.id+'/context'),list('controls',true)]);
+ const score=ctx.assessments[0], statement=[rec.cause,rec.risk_event,rec.consequence].filter(Boolean).map(esc).join(' → ');
+ const panel='<section class="detail-section"><h3>'+esc(rec.title)+'</h3><p>'+ (statement||'Risk ifadesi henüz girilmedi.')+'</p>'+
+  '<p>'+esc(rec.entity_name||'Varlık / hizmet belirtilmedi')+' · '+esc(rec.owner||'Risk sahibi atanmadı')+'</p>'+
+  '<div class="notice"><b>Güncel içsel risk '+(rec.likelihood*rec.impact)+' / 25</b> · Son değerlendirilen artık risk '+
+  (score?esc(score.residual)+' / 25':'henüz değerlendirilmedi')+'</div>'+
+  (score?'<p>Değerlendirme tarihindeki iştah eşiği '+score.appetite+' · '+(score.residual>score.appetite?'İştah aşıldı':'Eşik içinde')+'</p>':'')+'</section>';
+ const history=ctx.assessments.map(a=>'<details class="detail-section"><summary>'+esc(a.assessed_at)+' · Artık risk '+a.residual+' / 25</summary>'+
+  '<p>'+esc(a.assessor)+' · '+esc(a.rationale)+'</p><p>İçsel '+a.inherent+' · İştah '+a.appetite+' · Varlık / hizmet '+esc(a.snapshot.entity_name)+'</p>'+
+  '<p>'+esc([a.snapshot.cause,a.snapshot.risk_event,a.snapshot.consequence].join(' → '))+'</p>'+
+  a.snapshot.credits.map(c=>'<div>'+esc(c.code)+' · Çalışma #'+c.run_id+' · Katkı %'+Math.round(100*c.contribution)+'</div>').join('')+'</details>').join('');
+ const k=['catalog_id','description','category','response_strategy','treatment','due_date','review_date','status'];
+ const facts=Object.fromEntries(k.map(key=>[key,rec[key]]));
+ drawer('Risk • '+rec.code,panel+values('risks',facts)+
+  '<section class="detail-section"><h3>Risk işleme faaliyetleri</h3>'+relatedRecords('actions',ctx.actions)+'</section>'+
+  '<section class="detail-section"><h3>Değerlendirme geçmişi</h3>'+(history||'<p>Kaydedilmiş değerlendirme yok.</p>')+'</section>'+
+  checks('related_controls','Riski azaltan kontroller',all,ctx.controls,x=>x.code+' — '+x.name),[
+   ['Riski değerlendir',()=>riskAssess(rec)],['İşleme faaliyeti aç',()=>createForm('actions',{risk_id:rec.id,owner:rec.owner}),'secondary'],
+   ['Kontrolleri kaydet',async()=>{
+    await api('risks/'+rec.id+'/controls',{method:'POST',body:JSON.stringify({control_ids:selected('related_controls')})});
+    await openRecord('risks',rec.id,true);toast('Kontroller kaydedildi');
+   },'secondary'],...footer]);
+ bindChecks();
+}
+async function riskAssess(rec){
+ const ctx=await api('risks/'+rec.id+'/context');
+ const controls=ctx.controls.map(c=>{
+  const eligible=c.active&&c.test_status==='pass'&&c.has_evidence;
+  return '<div class="detail-section" data-credit="'+c.id+'" data-run="'+(c.run_id||'')+'"><b>'+esc(c.code+' — '+c.name)+'</b>'+
+   (eligible?'<p>Kanıtlı başarılı çalışma #'+c.run_id+' · '+esc(c.executed_at)+'</p>'+
+    '<div class="formgrid"><label class="field">Etkinlik<select data-effect><option value="">Katkı kullanma</option><option value="partial">Kısmen etkili</option><option value="effective">Etkili</option></select></label>'+
+    '<label class="field">Ağırlık<select data-weight><option value="low">Düşük (%20)</option><option value="medium">Orta (%40)</option><option value="high">Yüksek (%60)</option></select></label></div>':
+    '<p>Katkı uygulanamıyor. Aktif kontrol ve kanıta bağlı başarılı son test gerekir.</p>')+'</div>';
+ }).join('');
+ drawer('Risk değerlendirmesi • '+rec.code,'<p class="intro">Son testin geçerliliğini ve kontrolün bu riske etkisini değerlendirin. Aynı korumayı sağlayan iki kontrol için çifte katkı vermeyin.</p>'+
+  '<div class="notice">İçsel risk = olasılık × etki. Artık risk = içsel risk × (1 − toplam katkı). Kısmen etkili kontroller için ağırlığın yarısı kullanılır. Toplam katkı en fazla %100 olur.</div>'+
+  (controls||'<p>Bağlı kontrol yok. Katkı uygulanmaz.</p>')+'<p class="notice" id="riskEstimate" aria-live="polite"></p>'+
+  '<label class="field">Değerlendirme gerekçesi<textarea id="riskRationale" required></textarea></label>',
+  [['Değerlendirmeyi kaydet',async()=>{
+   const credits=read();
+   await api('risks/'+rec.id+'/assessments',{method:'POST',body:JSON.stringify({credits,rationale:$('riskRationale').value})});
+   await navigate('risks');await openRecord('risks',rec.id);toast('Değerlendirme kaydedildi');
+  }],['Vazgeç',()=>openRecord('risks',rec.id),'secondary']]);
+ function read(){return [...$('detailContent').querySelectorAll('[data-credit]')].filter(el=>el.querySelector('[data-effect]')?.value).map(el=>({
+  control_id:Number(el.dataset.credit),run_id:Number(el.dataset.run),effectiveness:el.querySelector('[data-effect]').value,weight:el.querySelector('[data-weight]').value}))}
+ function estimate(){
+  const sum=read().reduce((v,c)=>v+({low:.2,medium:.4,high:.6}[c.weight])*(c.effectiveness==='effective'?1:.5),0);
+  const residual=Number((rec.likelihood*rec.impact*(1-Math.min(1,sum))).toFixed(2));
+  $('riskEstimate').textContent='Öngörülen artık risk '+residual+' / 25'+(rec.appetite?' · İştah eşiği '+rec.appetite+(residual>rec.appetite?' aşılıyor':' içinde'):' · İştah eşiği girilmemiş');
+ }
+ $('detailContent').querySelectorAll('select').forEach(el=>el.onchange=estimate);estimate();
 }
 
 async function home(){
@@ -633,7 +782,7 @@ async function compliancePage(){
  };
  ['stdFilter','auditFilter','procFilter'].forEach(id=>$(id).onchange=update);
  await update();
- actions([['Kontrol kataloğunu aç',()=>navigate('controls')],['Tüm verileri Excel’e aktar',()=>exportExcel('all'),'secondary']]);
+ actions([['Kontrol kataloğunu aç',()=>navigate('controls')],...(canManage()?[['Tüm verileri Excel’e aktar',()=>exportExcel('all'),'secondary']]:[])]);
 }
 function setCompliance(which,id){
  const key=which==='audit'?'auditFilter':which==='standard'?'stdFilter':'procFilter';
@@ -755,14 +904,14 @@ function architecturePage(){
 
 async function adminPage(){
  const data=await api('admin/summary');
- const users=data.users||[];
- $('content').innerHTML='<div class="notice">Şimdilik tüm aktif GRC kullanıcıları eşit uygulama yetkilerine sahiptir. Kullanıcı ve rol tabloları hazır; ayrıntılı rol yetkileri daha sonra etkinleştirilebilir. MCP API erişimi ayrıdır.</div>'+
+ const users=data.users||[], enterprise=Boolean(STATE.user.app_role);
+ $('content').innerHTML='<div class="notice">'+(enterprise?'Kurumsal kullanıcı ve rol atamaları Microsoft Entra ID üzerinden yapılır.':'Yerel pilotta tüm aktif GRC kullanıcıları eşit uygulama yetkilerine sahiptir.')+'</div>'+
  '<div class="cards">'+[
  ['Kullanıcı',data.user_count],['Aktif kullanıcı',data.active_users],
  ['Veri şeması',data.schema_version],['Son etkinlik',data.activity.length]
  ].map(([name,value])=>'<div class="metric"><span class="metric-label">'+name+
  '</span><span class="metric-number">'+value+'</span></div>').join('')+'</div>'+
- '<div class="panel"><div class="panel-title"><h2>Kullanıcı yönetimi</h2><button class="btn small" id="newUser">+ Yeni kullanıcı</button></div>'+
+ '<div class="panel"><div class="panel-title"><h2>Kullanıcı yönetimi</h2>'+(enterprise?'':'<button class="btn small" id="newUser">+ Yeni kullanıcı</button>')+'</div>'+
  '<div class="tablewrap"><table><thead><tr><th>Kullanıcı adı</th><th>Görünen ad</th><th>Durum</th><th>Son giriş</th><th>İşlem</th></tr></thead>'+
  '<tbody>'+users.map(u=>'<tr><td class="cell-primary">'+esc(u.username)+'</td><td>'+esc(u.display_name)+'</td>'+
  '<td>'+showValue('controls','active',u.is_active)+'</td><td>'+esc(u.last_login_at||'—')+'</td>'+
@@ -776,7 +925,8 @@ async function adminPage(){
  '<thead><tr><th>İşlemi yapan</th><th>İşlem</th><th>Kayıt türü</th><th>Zaman</th></tr></thead><tbody>'+
  data.activity.map(x=>'<tr><td>'+esc(x.actor)+'</td><td>'+esc(x.method)+'</td><td>'+esc(x.object_type)+'</td>'+
  '<td>'+esc(x.occurred_at)+'</td></tr>').join('')+'</tbody></table></div></div>';
- $('newUser').onclick=userForm;$('allExport').onclick=()=>exportExcel('all');
+ if(!enterprise)$('newUser').onclick=userForm;
+ $('allExport').onclick=()=>exportExcel('all');
  $('allImport').onclick=()=>importExcel('all');
  $('content').querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{
   const active=b.dataset.active==='0';
@@ -786,7 +936,7 @@ async function adminPage(){
    toast('Kullanıcı güncellendi');adminPage()
   }catch(e){toast(e.message,false)}
  });
- actions([['Yeni kullanıcı',userForm],['Excel yedeği',()=>exportExcel('all'),'secondary']]);
+ actions([...(enterprise?[]:[['Yeni kullanıcı',userForm]]),['Excel yedeği',()=>exportExcel('all'),'secondary']]);
 }
 function userForm(){
  drawer('Yeni GRC kullanıcısı','<div class="notice">Tüm kullanıcıların yetkisi şimdilik eşittir. Geçici parola yalnızca bir defa görüntülenir ve ilk girişte değiştirilmesi zorunludur.</div>'+
@@ -808,7 +958,7 @@ async function start(){
  try{
   setupDetailResize();setupRelatedNavigation();
   STATE.meta=await api('metadata');
-  const user=await api('me');$('identity').textContent='Oturum • '+(user.username||'GRC');
+  const user=STATE.user=await api('me');$('identity').textContent='Oturum • '+(user.app_role?user.display_name:user.username);
   $('signout').onclick=async()=>{try{await api('logout',{method:'POST',body:'{}'});location.assign('/login')}
    catch(e){toast(e.message,false)}};
   $('closeDetail').onclick=closeDetail;

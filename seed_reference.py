@@ -111,12 +111,18 @@ def seed():
                         [objective_ids[k] for k in control["objectives"]])
 
         audit_ids = {}
+        finish_after_runs = {}
         for audit in scenario["audits"]:
             aid = existing_id(db, "audits", "name=?", (audit["name"],))
             if aid is None:
                 payload = {k: audit.get(k) for k in ("name", "scope", "planned_start", "planned_end",
                    "actual_start", "actual_end", "status", "auditors", "auditees")}
+                terminal = payload["status"] in ("completed","closed","cancelled")
+                if terminal:
+                    payload["status"]="in_progress"
                 aid = app.insert(db, "audits", payload)
+                if terminal:
+                    finish_after_runs[aid]=audit["status"]
                 counters["audits"] += 1
             audit_ids[audit["key"]] = aid
             if audit.get("standard"):
@@ -220,6 +226,9 @@ def seed():
                 if result["finding_id"]:
                     counters["findings"] += 1
 
+        for aid, status in finish_after_runs.items():
+            db.execute("UPDATE audits SET status=? WHERE id=?", (status,aid))
+            app.grc_plus.capture_audit_plan(db,aid)
         db.execute("INSERT INTO seed_runs(key,applied_at,summary_json) VALUES(?,?,?)",
                    (SEED_KEY, app.utcnow(), json.dumps(counters, ensure_ascii=False)))
         db.commit()

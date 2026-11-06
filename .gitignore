@@ -9,3 +9,13 @@ __pycache__/
 evidence-files/
 backups/
 verification/
+
+secrets/
+*.pem
+*.key
+*.pfx
+*.p12
+*.sqlite
+*.sqlite3
+*.db-journal
+*.bak

@@ -1,0 +1,34 @@
+# Place in the http context, e.g. /etc/nginx/conf.d/ks-grc.conf.
+# Use the company's real DNS name and TLS certificate. Restrict listener access
+# to approved corporate networks and MCP callers in the firewall.
+limit_req_zone $binary_remote_addr zone=ks_grc_rate:10m rate=15r/s;
+limit_conn_zone $binary_remote_addr zone=ks_grc_conn:10m;
+# The default combined format includes callback query parameters. Keep the
+# query string, cookies, authorization headers and POST bodies out of all logs.
+log_format ks_grc '$remote_addr [$time_local] $request_method $uri $status';
+server {
+    listen 443 ssl;
+    server_name grc.example.invalid;
+    ssl_certificate /etc/nginx/tls/grc-fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/grc-key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    access_log /var/log/nginx/ks-grc-access.log ks_grc;
+    if ($host != grc.example.invalid) { return 444; }
+    client_header_timeout 10s;
+    client_body_timeout 30s;
+    client_max_body_size 32m;
+    limit_conn ks_grc_conn 20;
+    limit_req zone=ks_grc_rate burst=40 nodelay;
+    limit_req_status 429;
+    location / {
+        proxy_request_buffering on;
+        proxy_set_header Host grc.example.invalid;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Connection "";
+        proxy_http_version 1.1;
+        proxy_read_timeout 45s;
+        proxy_pass http://127.0.0.1:18080;
+    }
+}

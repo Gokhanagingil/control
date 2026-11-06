@@ -181,10 +181,10 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual({c["code"] for c in scope["clauses"]}, {"9", "9.1"})
 
     def test_update_audit_and_close_finding(self):
-        status, audit = self.request("audits", {"name": "Update me"})
+        status, audit = self.request("audits", {"name": "Update me", "scope":"Prosedür gözden geçirmesi"})
         self.assertEqual(status, 201)
         status, updated = self.request(f"audits/{audit['id']}", {
-            "status": "completed", "actual_end": "2026-11-04"
+            "status": "completed", "actual_start": "2026-11-02", "actual_end": "2026-11-04"
         }, method="PATCH")
         self.assertEqual((status, updated["status"]), (200, "completed"))
         _, control = self.request("controls", {"code": "PATCH-CTL", "name": "Check"})
@@ -197,6 +197,30 @@ class HTTPTests(unittest.TestCase):
             "control_id": 9999
         }, method="PATCH")
         self.assertEqual(status, 400)
+
+    def test_forged_file_metadata_and_execution_links_refused(self):
+        for impersonation in (True,False):
+            status,_=self.request("evidence",{"title":"Unverified","source":"mcp",
+               "hash_sha256":"0"*64,"file_name":"not-uploaded.pdf","file_size":42},key=impersonation)
+            self.assertIn(status,(400,403))
+        status,_=self.request("findings",{"title":"Manufactured test link","execution_id":1})
+        self.assertEqual(status,400)
+
+    def test_audit_scope_catalog_revision_and_validation_routes(self):
+        _,standard=self.request("standards",{"code":"PARTIAL-H","name":"HTTP standard"})
+        _,clause=self.request("clauses",{"standard_id":standard["id"],"code":"sample","title":"Subclause"})
+        status,catalog=self.request("audits/scope-catalog")
+        self.assertEqual(status,200)
+        self.assertIn(clause["id"],[c["id"] for c in catalog["clauses"]])
+        scope={"standard_ids":[standard["id"]],"clause_ids":[clause["id"]]}
+        status,audit=self.request("audits",{"name":"Actual scope via HTTP",**scope})
+        self.assertEqual(status,201)
+        url=f"audits/{audit['id']}"
+        update={**scope,"expected_revision":audit["revision"],"audit_objective":"Continuity"}
+        self.assertEqual(self.request(url,update,method="PATCH")[0],200)
+        self.assertEqual(self.request(url,update,method="PATCH")[0],409)
+        self.assertEqual(self.request(url,update,key=True,method="PATCH")[0],403)
+        self.assertEqual(self.request(url+"/context")[1]["audit_objective"],"Continuity")
 
     def test_mcp_key_least_privilege(self):
         code, _ = self.request("controls", {"code":"MCP-FORBIDDEN","name":"Not allowed"}, key=True)

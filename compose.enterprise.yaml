@@ -1,0 +1,42 @@
+name: ks-grc-enterprise
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      CONTROL_AUTH_MODE: entra
+      CONTROL_COOKIE_SECURE: "1"
+      CONTROL_ENTRA_TENANT_ID: ${CONTROL_ENTRA_TENANT_ID:?Set your tenant UUID}
+      CONTROL_ENTRA_CLIENT_ID: ${CONTROL_ENTRA_CLIENT_ID:?Set your application UUID}
+      CONTROL_ENTRA_AUTH_CONTEXT: ${CONTROL_ENTRA_AUTH_CONTEXT:?Set the published MFA authentication context}
+      CONTROL_ENTRA_REDIRECT_URI: ${CONTROL_ENTRA_REDIRECT_URI:?Set the exact HTTPS callback}
+      CONTROL_ENTRA_CLIENT_SECRET_FILE: /run/secrets/entra_client_secret
+      CONTROL_API_KEY_FILE: /run/secrets/mcp_api_key
+    secrets:
+      - entra_client_secret
+      - mcp_api_key
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - grc_data:/data
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 120
+    mem_limit: 768m
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+secrets:
+  entra_client_secret:
+    file: ${CONTROL_ENTRA_SECRET_PATH:?Set absolute path to an Entra secret file}
+  mcp_api_key:
+    file: ${CONTROL_MCP_SECRET_PATH:?Set absolute path to a dedicated random API key file}
+volumes:
+  grc_data:

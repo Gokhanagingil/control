@@ -27,7 +27,7 @@ services:
       timeout: 5s
       retries: 3
   preview:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     restart: unless-stopped
     command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://app:8080"]
     depends_on:

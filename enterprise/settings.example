@@ -1,0 +1,7 @@
+# Nonsecret settings. Copy outside the source checkout and replace placeholders.
+CONTROL_ENTRA_TENANT_ID=
+CONTROL_ENTRA_CLIENT_ID=
+CONTROL_ENTRA_AUTH_CONTEXT=
+CONTROL_ENTRA_REDIRECT_URI=https://grc.example.invalid/auth/entra/callback
+CONTROL_ENTRA_SECRET_PATH=/etc/ks-grc/secrets/entra-client-secret
+CONTROL_MCP_SECRET_PATH=/etc/ks-grc/secrets/mcp-api-key
