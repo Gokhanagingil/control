@@ -127,6 +127,7 @@ tr.selected-row td{background:#edf5ff;box-shadow:inset 0 -1px #bad3f7}
 .map-viewport{overflow:auto;background:#f8fbff;border:1px solid #dce6f3;border-radius:14px;max-height:calc(100vh - 240px);min-height:380px}
 #relationshipMap{display:block;width:100%;height:auto;min-width:0}
 .map-node{cursor:pointer}.map-node:hover rect,.map-node:focus-visible rect{stroke:#2563eb;stroke-width:3}
+#mapExport{text-decoration:none}.map-viewport:focus-visible{outline:2px solid #2667db;outline-offset:2px}
 .map-node:focus-visible{outline:none}.map-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .map-note{font-size:12px;line-height:1.7;color:#64748b}
 @media(max-width:1150px) and (min-width:1001px){#main.details-open{padding-right:calc(var(--detail-width) + 20px)}}

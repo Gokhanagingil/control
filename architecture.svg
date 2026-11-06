@@ -1,0 +1,254 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="relationshipMap" viewBox="0 0 1280 1820" width="1280" height="1820" role="img" aria-labelledby="mapTitle mapDescription" font-family="DejaVu Sans,Arial,sans-serif">
+<title id="mapTitle">KS GRC · Denetim, kontrol ve risk ilişkileri</title><desc id="mapDescription">Denetim kriterleri ve kapanış kapsamı, kontrol çalışmaları ve kanıtlar, risk değerlendirmeleri ve kararları. Son bölüm kurumsal ve pilot erişim yollarını gösterir. Bölümlerde tekrarlanan kutular aynı kayıt türüdür.</desc>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 7 3.5 0 7z" fill="#637b89"/></marker></defs>
+<rect x="0" y="0" width="1280" height="1820" rx="0" fill="#f3f6f8"/>
+<rect x="0" y="0" width="1280" height="118" rx="0" fill="#183349"/>
+<text x="51" y="33" fill="#9edbd1" font-size="15" font-weight="700">KS GRC   /   MİMARİ HARİTA</text>
+<text x="50" y="72" fill="#ffffff" font-size="34" font-weight="700">Denetim, kontrol ve risk ilişkileri</text>
+<text x="52" y="100" fill="#d2e5ef" font-size="15" font-weight="400">1:N  birden çoğa     •     M:N  çoktan çoğa     •     Kesikli ok  testten gelen katkı     •     Tekrarlanan kutular aynı kayıt türüdür.</text>
+<g id="scopeChapter">
+<rect x="26" y="136" width="1228" height="385" rx="14" fill="#ffffff" stroke="#c6d4dd"/>
+<rect x="48" y="159" width="41" height="31" rx="8" fill="#2a617d"/>
+<text x="68" y="180" fill="white" font-size="16" font-weight="700" text-anchor="middle">01</text>
+<text x="104" y="182" fill="#172e42" font-size="26" font-weight="700">Denetim neyi kapsıyor?</text>
+<text x="105" y="208" fill="#4d6474" font-size="16" font-weight="400">Standartları ve maddeleri denetçi seçer. Uygulanacak kontroller, seçili maddelerin etkin kontrol eşlemelerinden gelir.</text>
+<path data-map-edge="standards:clauses" d="M281 289h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="325" y="280" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="clauses:controls" d="M596 289h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="640" y="280" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N</text>
+<path data-map-edge="controls:objectives" d="M911 289h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="955" y="280" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N</text>
+<path data-map-edge="audits:standards" d="M122 378V335" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="117" y="360" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N</text>
+<path data-map-edge="audits:clauses" d="M217 378V353H451V335" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="332" y="346" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N · madde seçimi</text>
+<path data-map-edge="controls:documents" d="M755 330V374" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="748" y="357" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N</text>
+<path data-map-edge="controls:processes" d="M839 330V354H1091V374" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="970" y="348" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N · uygulanır</text>
+<path data-map-edge="audits:audit_plan" d="M281 420h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="325" y="411" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">0..1</text>
+<g data-map-node="standards" data-map-route="standards">
+<rect x="54" y="245" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="67" y="271" fill="#192f40" font-size="18" font-weight="700">Standart / otorite</text>
+<text x="67" y="294" fill="#3c5564" font-size="14" font-weight="400">Kod ve sürüm</text>
+<text x="67" y="315" fill="#326784" font-size="14" font-weight="400">Örn. ISO/IEC 20000-1</text>
+</g>
+<g data-map-node="clauses" data-map-route="clauses">
+<rect x="369" y="245" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="382" y="271" fill="#192f40" font-size="18" font-weight="700">Standart maddesi</text>
+<text x="382" y="294" fill="#3c5564" font-size="14" font-weight="400">Standardın tam veya kısmi</text>
+<text x="382" y="315" fill="#326784" font-size="14" font-weight="400">kapsama alınabilen maddesi</text>
+</g>
+<g data-map-node="controls" data-map-route="controls">
+<rect x="684" y="245" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="697" y="271" fill="#192f40" font-size="18" font-weight="700">Kontrol tanımı</text>
+<text x="697" y="294" fill="#3c5564" font-size="14" font-weight="400">Yöntem, sıklık, sorumlu</text>
+<text x="697" y="315" fill="#326784" font-size="14" font-weight="400">Beklenen sonuç</text>
+</g>
+<g data-map-node="objectives" data-map-route="objectives">
+<rect x="999" y="245" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="1012" y="271" fill="#192f40" font-size="18" font-weight="700">Kontrol hedefi</text>
+<text x="1012" y="294" fill="#3c5564" font-size="14" font-weight="400">Bağlı kontrollerin</text>
+<text x="1012" y="315" fill="#326784" font-size="14" font-weight="400">ulaşmayı amaçladığı sonuç</text>
+</g>
+<g data-map-node="audits" data-map-route="audits">
+<rect x="54" y="378" width="227" height="85" rx="10" fill="#eaf7f2" stroke="#216957"/>
+<text x="67" y="404" fill="#192f40" font-size="18" font-weight="700">Denetim</text>
+<text x="67" y="427" fill="#3c5564" font-size="14" font-weight="400">Ölçütler, kapsam ve dönem</text>
+<text x="67" y="448" fill="#216957" font-size="14" font-weight="400">Birden çok standart seçilebilir</text>
+</g>
+<g data-map-node="audit_plan">
+<rect x="369" y="378" width="227" height="85" rx="10" fill="#fff5e1" stroke="#7d5818"/>
+<text x="382" y="404" fill="#192f40" font-size="18" font-weight="700">Kapanış kapsamı</text>
+<text x="382" y="427" fill="#3c5564" font-size="14" font-weight="400">Sabit madde–kontrol çiftleri</text>
+<text x="382" y="448" fill="#7d5818" font-size="14" font-weight="600">Denetim ayrıntısı</text>
+</g>
+<g data-map-node="documents" data-map-route="documents">
+<rect x="684" y="378" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="697" y="404" fill="#192f40" font-size="18" font-weight="700">Talimat / doküman</text>
+<text x="697" y="427" fill="#3c5564" font-size="14" font-weight="400">Kontrole kaynak olan</text>
+<text x="697" y="448" fill="#326784" font-size="14" font-weight="400">kurumsal doküman</text>
+</g>
+<g data-map-node="processes" data-map-route="processes">
+<rect x="999" y="378" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="1012" y="404" fill="#192f40" font-size="18" font-weight="700">Süreç</text>
+<text x="1012" y="427" fill="#3c5564" font-size="14" font-weight="400">Kontrolün uygulandığı süreç</text>
+<text x="1012" y="448" fill="#326784" font-size="14" font-weight="400">Örn. değişiklik yönetimi</text>
+</g>
+<text x="54" y="497" fill="#425c69" font-size="15" font-weight="400">Kontrol hedefinin madde ve süreç bağlantıları kontroller üzerinden türetilir. Eski denetimlerin eksik kapanış geçmişi sonradan üretilmez.</text>
+</g>
+<g id="testChapter">
+<rect x="26" y="540" width="1228" height="396" rx="14" fill="#ffffff" stroke="#c6d4dd"/>
+<rect x="48" y="563" width="41" height="31" rx="8" fill="#2a617d"/>
+<text x="68" y="584" fill="white" font-size="16" font-weight="700" text-anchor="middle">02</text>
+<text x="104" y="586" fill="#172e42" font-size="26" font-weight="700">Test sonucu hangi kanıta dayanıyor?</text>
+<text x="105" y="612" fill="#4d6474" font-size="16" font-weight="400">Her çalışma bir kontrolü test eder. Çalışma bir denetimde ya da sürekli izleme kapsamında yürütülebilir.</text>
+<path data-map-edge="controls:executions" d="M281 697h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="325" y="688" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="executions:evidence" d="M596 697h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="640" y="688" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N</text>
+<path data-map-edge="evidence:evidence_versions" d="M911 697h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="955" y="688" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="executions:evidence_versions" d="M531 653V633H1111V649" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="820" y="626" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">çalışmaya sabitlenen dosya sürümü ve hash</text>
+<path data-map-edge="audits:executions" d="M215 788V762H433V742" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="312" y="757" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N · denetimde çalışır</text>
+<path data-map-edge="executions:findings" d="M518 738V783" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="539" y="765" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">0..N</text>
+<path data-map-edge="audits:findings" d="M281 830h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="325" y="821" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="findings:actions" d="M596 830h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="640" y="821" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<g data-map-node="controls" data-map-route="controls">
+<rect x="54" y="653" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="67" y="679" fill="#192f40" font-size="18" font-weight="700">Kontrol tanımı</text>
+<text x="67" y="702" fill="#3c5564" font-size="14" font-weight="400">Manuel veya otomatik</text>
+<text x="67" y="723" fill="#326784" font-size="14" font-weight="400">izlenen kontrol</text>
+</g>
+<g data-map-node="executions" data-map-route="executions">
+<rect x="369" y="653" width="227" height="85" rx="10" fill="#eaf7f2" stroke="#216957"/>
+<text x="382" y="679" fill="#192f40" font-size="18" font-weight="700">Kontrol çalışması</text>
+<text x="382" y="702" fill="#3c5564" font-size="14" font-weight="400">Test zamanı ve sonucu</text>
+<text x="382" y="723" fill="#216957" font-size="14" font-weight="400">Tanım ve ilişkilerin anlık kaydı</text>
+</g>
+<g data-map-node="evidence" data-map-route="evidence">
+<rect x="684" y="653" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="697" y="679" fill="#192f40" font-size="18" font-weight="700">Kanıt</text>
+<text x="697" y="702" fill="#3c5564" font-size="14" font-weight="400">Birden çok çalışmayı</text>
+<text x="697" y="723" fill="#326784" font-size="14" font-weight="400">destekleyebilir</text>
+</g>
+<g data-map-node="evidence_versions">
+<rect x="999" y="653" width="227" height="85" rx="10" fill="#fff5e1" stroke="#7d5818"/>
+<text x="1012" y="679" fill="#192f40" font-size="18" font-weight="700">Kanıt sürümü</text>
+<text x="1012" y="702" fill="#3c5564" font-size="14" font-weight="400">Çalışmada kullanılan</text>
+<text x="1012" y="723" fill="#7d5818" font-size="14" font-weight="600">dosya sürümü ve SHA-256</text>
+</g>
+<g data-map-node="audits" data-map-route="audits">
+<rect x="54" y="788" width="227" height="85" rx="10" fill="#eaf7f2" stroke="#216957"/>
+<text x="67" y="814" fill="#192f40" font-size="18" font-weight="700">Denetim</text>
+<text x="67" y="837" fill="#3c5564" font-size="14" font-weight="400">Denetimin kendi bulguları</text>
+<text x="67" y="858" fill="#216957" font-size="14" font-weight="400">ve diğer açık bulgular ayrı</text>
+</g>
+<g data-map-node="findings" data-map-route="findings">
+<rect x="369" y="788" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="382" y="814" fill="#192f40" font-size="18" font-weight="700">Bulgu</text>
+<text x="382" y="837" fill="#3c5564" font-size="14" font-weight="400">Başarısız testten doğabilir</text>
+<text x="382" y="858" fill="#326784" font-size="14" font-weight="400">Manuel bulgu da açılabilir</text>
+</g>
+<g data-map-node="actions" data-map-route="actions">
+<rect x="684" y="788" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="697" y="814" fill="#192f40" font-size="18" font-weight="700">Düzeltici faaliyet</text>
+<text x="697" y="837" fill="#3c5564" font-size="14" font-weight="400">Bulguya ve/veya kontrole</text>
+<text x="697" y="858" fill="#326784" font-size="14" font-weight="400">bağlanabilen takip kaydı</text>
+</g>
+<rect x="999" y="788" width="227" height="85" rx="8" fill="#f5f7f9"/>
+<text x="1013" y="809" fill="#304751" font-size="14" font-weight="700">Geçmiş sonuç</text>
+<text x="1013" y="831" fill="#465d6c" font-size="14" font-weight="400">Sonraki başarılı test</text>
+<text x="1013" y="851" fill="#465d6c" font-size="14" font-weight="400">açık bulguyu kapatmaz.</text>
+<text x="54" y="909" fill="#425c69" font-size="15" font-weight="400">Kanıt ayrıca denetime, kontrole, maddeye ve sürece doğrudan bağlanabilir (M:N). Kanıt eklemek tek başına bir uygunluk kararı vermez.</text>
+</g>
+<g id="riskChapter">
+<rect x="26" y="956" width="1228" height="482" rx="14" fill="#ffffff" stroke="#c6d4dd"/>
+<rect x="48" y="979" width="41" height="31" rx="8" fill="#216957"/>
+<text x="68" y="1000" fill="white" font-size="16" font-weight="700" text-anchor="middle">03</text>
+<text x="104" y="1002" fill="#172e42" font-size="26" font-weight="700">Bir risk nasıl değerlendirilip karara bağlanıyor?</text>
+<text x="105" y="1028" fill="#4d6474" font-size="16" font-weight="400">Katalog şablonu tekrar kullanılabilir. Risk kaydı belirli bir varlık veya hizmeti, sahibini ve iş etkisini tanımlar.</text>
+<path data-map-edge="risk_catalog:risks" d="M281 1131h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="325" y="1122" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="risks:risk_assessments" d="M596 1131h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="640" y="1122" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="risk_assessments:risk_decisions" d="M911 1131h84" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="955" y="1122" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">dayanak</text>
+<path data-map-edge="risks:risk_decisions" d="M522 1087V1060H1108V1083" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="811" y="1053" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N · riskin karar geçmişi</text>
+<path data-map-edge="controls:risks" d="M170 1252V1211H439V1175" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="302" y="1204" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">M:N · riske bağlı kontroller</text>
+<path data-map-edge="risks:actions" d="M521 1172V1248" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="558" y="1222" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">1:N</text>
+<path data-map-edge="executions:risk_assessments" d="M804 1252V1176" stroke="#637b89" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#arrow)" stroke-dasharray="6 5"/>
+<text x="850" y="1221" fill="#435b68" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round">test katkısı</text>
+<g data-map-node="risk_catalog" data-map-route="risk_catalog">
+<rect x="54" y="1087" width="227" height="85" rx="10" fill="#eaf7f2" stroke="#216957"/>
+<text x="67" y="1113" fill="#192f40" font-size="18" font-weight="700">Risk kataloğu</text>
+<text x="67" y="1136" fill="#3c5564" font-size="14" font-weight="400">Şablon: neden, olay, iş etkisi</text>
+<text x="67" y="1157" fill="#216957" font-size="14" font-weight="400">Şablonsuz risk de açılabilir</text>
+</g>
+<g data-map-node="risks" data-map-route="risks">
+<rect x="369" y="1087" width="227" height="85" rx="10" fill="#eaf7f2" stroke="#216957"/>
+<text x="382" y="1113" fill="#192f40" font-size="18" font-weight="700">Risk kaydı</text>
+<text x="382" y="1136" fill="#3c5564" font-size="14" font-weight="400">Varlık / hizmet, risk sahibi</text>
+<text x="382" y="1157" fill="#216957" font-size="14" font-weight="400">İştah ve işleme stratejisi</text>
+</g>
+<g data-map-node="risk_assessments">
+<rect x="684" y="1087" width="227" height="85" rx="10" fill="#fff5e1" stroke="#7d5818"/>
+<text x="697" y="1113" fill="#192f40" font-size="16.5" font-weight="700">Risk değerlendirmesi</text>
+<text x="697" y="1136" fill="#3c5564" font-size="14" font-weight="400">İçsel ve artık risk, gerekçe</text>
+<text x="697" y="1157" fill="#7d5818" font-size="14" font-weight="600">Risk ayrıntısı</text>
+</g>
+<g data-map-node="risk_decisions">
+<rect x="999" y="1087" width="227" height="85" rx="10" fill="#fff5e1" stroke="#7d5818"/>
+<text x="1012" y="1113" fill="#192f40" font-size="18" font-weight="700">Risk kararı</text>
+<text x="1012" y="1136" fill="#3c5564" font-size="14" font-weight="400">Kabul, kapanış, yeniden açma</text>
+<text x="1012" y="1157" fill="#7d5818" font-size="14" font-weight="600">Risk ayrıntısı</text>
+</g>
+<g data-map-node="controls" data-map-route="controls">
+<rect x="54" y="1252" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="67" y="1278" fill="#192f40" font-size="18" font-weight="700">Kontrol tanımı</text>
+<text x="67" y="1301" fill="#3c5564" font-size="14" font-weight="400">Bir risk birden fazla</text>
+<text x="67" y="1322" fill="#326784" font-size="14" font-weight="400">kontrolle ilişkilendirilebilir</text>
+</g>
+<g data-map-node="actions" data-map-route="actions">
+<rect x="369" y="1252" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="382" y="1278" fill="#192f40" font-size="18" font-weight="700">İşleme faaliyeti</text>
+<text x="382" y="1301" fill="#3c5564" font-size="14" font-weight="400">Riskten açılan faaliyet</text>
+<text x="382" y="1322" fill="#326784" font-size="14" font-weight="400">Sorumlu ve hedef tarih</text>
+</g>
+<g data-map-node="executions" data-map-route="executions">
+<rect x="684" y="1252" width="227" height="85" rx="10" fill="#eaf3f9" stroke="#326784"/>
+<text x="697" y="1278" fill="#192f40" font-size="18" font-weight="700">Kontrol çalışması</text>
+<text x="697" y="1301" fill="#3c5564" font-size="14" font-weight="400">Son test başarılı olmalı</text>
+<text x="697" y="1322" fill="#326784" font-size="14" font-weight="400">Geçerli dosya kanıtı gerekir</text>
+</g>
+<rect x="999" y="1252" width="227" height="85" rx="8" fill="#f5f7f9"/>
+<text x="1013" y="1273" fill="#304751" font-size="14" font-weight="700">Dayanak</text>
+<text x="1013" y="1295" fill="#465d6c" font-size="14" font-weight="400">Kabul ve kapanış, son risk</text>
+<text x="1013" y="1315" fill="#465d6c" font-size="14" font-weight="400">değerlendirmesine dayanır.</text>
+<text x="54" y="1374" fill="#425c69" font-size="15" font-weight="400">Kontrolü riske bağlamak skoru düşürmez. Değerlendiren kişi, uygun testlerden hangilerinin artık riske ne kadar katkı verdiğini kaydeder.</text>
+<text x="54" y="1404" fill="#425c69" font-size="15" font-weight="400">Kurumsal profilde iştah üstü kabulü, değerlendirmeyi yapan kişiden farklı bir yönetici ayrı bir istisna gerekçesiyle onaylar.</text>
+</g>
+<g id="accessChapter">
+<rect x="26" y="1458" width="1228" height="306" rx="14" fill="#ffffff" stroke="#c6d4dd"/>
+<rect x="48" y="1481" width="41" height="31" rx="8" fill="#53677a"/>
+<text x="68" y="1502" fill="white" font-size="16" font-weight="700" text-anchor="middle">04</text>
+<text x="104" y="1504" fill="#172e42" font-size="26" font-weight="700">Uygulamaya kim, hangi yoldan erişiyor?</text>
+<text x="105" y="1530" fill="#4d6474" font-size="16" font-weight="400">Erişim profilleri ve veri kaynağı bağlantıları</text>
+<text x="56" y="1580" fill="#334d61" font-size="15" font-weight="700">Kurumsal kullanıcı</text>
+<rect x="231" y="1554" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="243" y="1574" fill="#203a50" font-size="15" font-weight="700">Microsoft Entra ID</text>
+<text x="243" y="1594" fill="#4b6576" font-size="13" font-weight="400">Tek kurum kiracısı</text>
+<path d="M537 1579h28" stroke="#637b89" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="572" y="1554" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="584" y="1574" fill="#203a50" font-size="15" font-weight="700">Koşullu Erişim (MFA)</text>
+<text x="584" y="1594" fill="#4b6576" font-size="13" font-weight="400">Etkin kurum ilkesi ve uygulama rolü</text>
+<path d="M878 1579h28" stroke="#637b89" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="913" y="1554" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="925" y="1574" fill="#203a50" font-size="15" font-weight="700">KS GRC oturumu</text>
+<text x="925" y="1594" fill="#4b6576" font-size="13" font-weight="400">Denetçi veya yönetici yetkisi</text>
+<text x="56" y="1647" fill="#334d61" font-size="15" font-weight="700">Makine erişimi</text>
+<rect x="231" y="1621" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="243" y="1641" fill="#203a50" font-size="15" font-weight="700">ServiceNow / Dynamics</text>
+<text x="243" y="1661" fill="#4b6576" font-size="13" font-weight="400">Yetkili kaynak sistemleri</text>
+<path d="M537 1646h28" stroke="#637b89" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="572" y="1621" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="584" y="1641" fill="#203a50" font-size="15" font-weight="700">Mevcut MCP istemcisi</text>
+<text x="584" y="1661" fill="#4b6576" font-size="13" font-weight="400">Yetkili sorgu ve ayrılmış API anahtarı</text>
+<path d="M878 1646h28" stroke="#637b89" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="913" y="1621" width="303" height="50" rx="7" fill="#f1f5fa"/>
+<text x="925" y="1641" fill="#203a50" font-size="15" font-weight="700">KS GRC API</text>
+<text x="925" y="1661" fill="#4b6576" font-size="13" font-weight="400">Kanıt ve otomatik kontrol sonucu</text>
+<text x="55" y="1717" fill="#425c69" font-size="15" font-weight="400">Pilot yerel kullanıcı hesabıyla çalışır. Kurumsal profil yerel parola girişini kapatır. Gerçek MFA kabulü kurumun Entra ortamında doğrulanır.</text>
+</g>
+<text x="53" y="1796" fill="#476273" font-size="14" font-weight="600">KS GRC   /   Kayıt modeli ve erişim yolları</text>
+<text x="1225" y="1796" fill="#476273" font-size="14" font-weight="500" text-anchor="end">06.11.2026</text>
+</svg>

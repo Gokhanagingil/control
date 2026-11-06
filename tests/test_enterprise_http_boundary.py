@@ -9,6 +9,7 @@ import time
 import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
+from pathlib import Path
 
 import app
 import entra_auth
@@ -48,6 +49,17 @@ class EnterpriseBoundary(unittest.TestCase):
             return r.status, r.headers, r.read()
         finally:
             conn.close()
+
+    def test_architecture_asset_requires_human_session(self):
+        path = "/architecture.svg"
+        status, headers, _ = self.request("GET", path)
+        self.assertEqual((status, headers["Location"]), (303, "/login"))
+        self.assertEqual(self.request("GET", path, {"X-API-Key":self.key})[0], 403)
+        status, headers, body = self.request("GET", path, {"Cookie":self.cookie})
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get_content_type(), "image/svg+xml")
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(body, (Path(app.__file__).parent / "architecture.svg").read_bytes())
 
     def test_anonymous_and_header_impersonation_fail(self):
         for path in ("/api/me","/api/controls","/api/audits/1/context","/api/risks","/api/risks/1/context",

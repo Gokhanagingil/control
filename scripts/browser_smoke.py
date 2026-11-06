@@ -225,22 +225,7 @@ def exercise_feedback(page,out,checks):
     page.get_by_role('button',name='← Önceki kayıt',exact=True).click()
     expect(page.locator('#auditOtherFindings')).to_contain_text('UAT REL Other audit')
     checks.append('audit_current_and_other_open_findings_separated_and_clickable')
-    page.locator('[data-nav="architecture"]').click()
-    expect(page.locator('#relationshipMap')).to_be_visible()
-    for name in ['Standart / otorite','Standart maddesi','Kontrol hedefi','Süreç','Denetim','Kontrol tanımı','Kontrol çalışması','Kanıt','Bulgu','Düzeltici faaliyet']:
-        expect(page.locator('#relationshipMap')).to_contain_text(name)
-    page.locator('#mapZoomIn').click();expect(page.locator('#mapScale')).to_have_text('125%')
-    page.locator('#mapFit').click();expect(page.locator('#mapScale')).to_have_text('100%')
-    with page.expect_download() as download:
-        page.locator('#mapExport').click()
-    raw=Path(download.value.path()).read_bytes()
-    from xml.etree import ElementTree as ET
-    ET.fromstring(raw);assert b'<script' not in raw
-    (out/'09-relationship-map.svg').write_bytes(raw)
-    page.screenshot(path=str(out/'09-relationship-map.png'),full_page=True)
-    page.locator('#relationshipMap [data-map-route="objectives"]').click()
-    expect(page.locator('#pageTitle')).to_have_text('Kontrol Hedefleri')
-    checks.append('single_relationship_map_zoom_export_and_link_navigation')
+    exercise_architecture(page,out,checks)
     page.set_viewport_size({'width':390,'height':844})
     page.locator('#content [data-row]').first.click()
     expect(page.locator('#detail')).to_have_class('open')
@@ -248,6 +233,120 @@ def exercise_feedback(page,out,checks):
     assert abs(page.locator('#detail').bounding_box()['width']-390)<2
     page.keyboard.press('Escape')
     checks.append('mobile_detail_has_no_horizontal_resize_trap')
+
+
+def exercise_architecture(page,out,checks):
+    from xml.etree import ElementTree as ET
+
+    page.locator('[data-nav="architecture"]').click()
+    graph=page.locator('#relationshipMap')
+    expect(graph).to_be_visible()
+    expect(graph).to_have_attribute('role','group')
+    node_ids=set(graph.locator('[data-map-node]').evaluate_all('nodes => nodes.map(n => n.dataset.mapNode)'))
+    required_nodes={'standards','clauses','objectives','processes','controls','audits','audit_plan',
+                    'executions','evidence','evidence_versions','findings','actions','documents','risk_catalog','risks',
+                    'risk_assessments','risk_decisions'}
+    assert not required_nodes - node_ids, required_nodes - node_ids
+    edge_ids=set(graph.locator('[data-map-edge]').evaluate_all('edges => edges.map(e => e.dataset.mapEdge)'))
+    required_edges={'audits:standards','audits:clauses','audits:audit_plan','risk_catalog:risks',
+                    'risks:risk_assessments','risk_assessments:risk_decisions','risks:risk_decisions',
+                    'controls:risks','risks:actions','executions:evidence','evidence:evidence_versions',
+                    'executions:risk_assessments','executions:evidence_versions'}
+    assert not required_edges - edge_ids, required_edges - edge_ids
+    assert all(set(edge.split(':'))<=node_ids for edge in edge_ids), 'Map edge has no corresponding node'
+    for key in ('risk_assessments','risk_decisions','audit_plan'):
+        node=graph.locator(f'[data-map-node="{key}"]').first
+        assert node.get_attribute('data-map-route') is None
+        assert node.get_attribute('tabindex') != '0'
+        expect(node).to_contain_text('Denetim ayrıntısı' if key=='audit_plan' else 'Risk ayrıntısı',ignore_case=True)
+    checks.append('architecture_audit_scope_risk_decisions_and_non_linked_history')
+
+    # Detect cropped content, including footers and labels, in the export coordinate space.
+    assert graph.evaluate("""svg => {
+        const r=svg.getBBox(), b=svg.viewBox.baseVal;
+        return r.x >= b.x-1 && r.y >= b.y-1 &&
+               r.x+r.width <= b.x+b.width+1 && r.y+r.height <= b.y+b.height+1;
+    }"""), 'SVG content escapes the viewBox'
+    clipped=graph.locator('[data-map-node]').evaluate_all("""nodes => nodes.flatMap(node => {
+        const card=node.querySelector('rect').getBBox();
+        return [...node.querySelectorAll('text')].filter(t=>{
+            const b=t.getBBox();
+            return b.x<card.x || b.y<card.y || b.x+b.width>card.x+card.width || b.y+b.height>card.y+card.height;
+        }).map(t=>t.textContent);
+    })""")
+    assert not clipped, ('Text cropped within map nodes',clipped)
+    expect(page.locator('#mapScale')).to_have_text('100%')
+    page.locator('#mapZoomIn').click()
+    expect(page.locator('#mapScale')).to_have_text('125%')
+    with page.expect_download() as download:
+        page.locator('#mapExport').click()
+    raw=Path(download.value.path()).read_bytes()
+    saved=ET.fromstring(raw)
+    assert saved.tag=='{http://www.w3.org/2000/svg}svg' and saved.get('role')=='img'
+    assert all(el.get('tabindex')!='0' and el.get('role')!='link' for el in saved.iter())
+    assert saved.get('viewBox')==graph.get_attribute('viewBox')
+    ns={'s':'http://www.w3.org/2000/svg'}
+    exported_text=[''.join(t.itertext()) for t in saved.findall('.//s:text',ns)]
+    assert exported_text==graph.locator('text').all_text_contents(), 'Export is missing visible map labels'
+    ids=[el.get('id') for el in saved.iter() if el.get('id')]
+    assert len(ids)==len(set(ids)), 'Duplicate SVG IDs in standalone map'
+    for key in ('aria-labelledby','aria-describedby'):
+        assert all(ref in ids for ref in saved.get(key,'').split())
+    for el in saved.iter():
+        assert el.tag.split('}')[-1] not in {'script','foreignObject'}
+        for name,value in el.attrib.items():
+            assert not name.lower().startswith('on')
+            if value.startswith('url(#'):
+                assert value[5:-1] in ids, 'Broken internal SVG asset reference'
+            if name.split('}')[-1] == 'href':
+                assert value.startswith('#') and value[1:] in ids, 'Unexpected external resource in standalone SVG'
+    (out/'09-relationship-map.svg').write_bytes(raw)
+    page.locator('#mapFit').click()
+    expect(page.locator('#mapScale')).to_have_text('100%')
+    page.screenshot(path=str(out/'09-relationship-map.png'),full_page=True)
+    checks.append('architecture_export_matches_complete_svg_after_zoom')
+
+    for shortcut,chapter in [('mapAccess','accessChapter'),('mapTest','testChapter'),
+                             ('mapRisk','riskChapter'),('mapAudit','scopeChapter')]:
+        page.locator('#'+shortcut).click()
+        expect(page.locator('#pageTitle')).to_have_text('Mimari Harita')
+        page.wait_for_function("""chapter => {
+            const v=document.getElementById('mapViewport').getBoundingClientRect();
+            const y=document.getElementById(chapter).getBoundingClientRect().top;
+            return y>=v.top-3 && y<v.bottom-20;
+        }""",arg=chapter)
+    checks.append('architecture_shortcuts_in_one_map')
+
+    for route,key,title in [('risk_catalog','Enter','Risk Kataloğu'),('risks','Space','Riskler')]:
+        link=graph.locator(f'[data-map-route="{route}"]').first
+        expect(link).to_have_attribute('role','link')
+        expect(link).to_have_attribute('tabindex','0')
+        assert link.get_attribute('aria-label'), 'Missing accessible link name'
+        link.focus()
+        link.press(key)
+        expect(page.locator('#pageTitle')).to_have_text(title)
+        if route=='risk_catalog':page.locator('[data-nav="architecture"]').click()
+    checks.append('architecture_keyboard_routes_to_risk_catalog_and_register')
+
+    page.set_viewport_size({'width':390,'height':844})
+    page.locator('[data-nav="architecture"]').click()
+    expect(graph).to_be_visible()
+    page.wait_for_function('parseInt(document.getElementById("mapScale").textContent)>=200')
+    page.locator('#mapFit').click()
+    expect(page.locator('#mapScale')).to_have_text('100%')
+    for _ in range(2):
+        page.locator('#mapZoomIn').click()
+    expect(page.locator('#mapScale')).to_have_text('150%')
+    page.wait_for_function("""() => {
+        const v=document.getElementById('mapViewport');
+        return v.scrollWidth>v.clientWidth && document.documentElement.scrollWidth<=window.innerWidth+1;
+    }""")
+    assert page.locator('#mapViewport').evaluate('v => (v.scrollLeft=v.scrollWidth, v.scrollLeft>0)')
+    page.locator('#mapFit').click()
+    expect(page.locator('#mapScale')).to_have_text('100%')
+    checks.append('mobile_architecture_zoom_and_horizontal_pan_are_viewport_scoped')
+    graph.locator('[data-map-route="objectives"]').first.click()
+    expect(page.locator('#pageTitle')).to_have_text('Kontrol Hedefleri')
 
 
 def run():

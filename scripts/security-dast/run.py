@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 # Seed the Sites tree from known authenticated application paths. No crawler or IdP traffic.
-PATHS = ["/", "/login", "/ksgrc.js", "/api/me", "/api/admin/summary",
+PATHS = ["/", "/login", "/ksgrc.js", "/architecture.svg", "/api/architecture/data", "/api/me", "/api/admin/summary",
          "/api/controls", "/api/controls/1/context", "/api/objectives/1/context",
          "/api/audits", "/api/audits/1/context", "/api/audits/1/evidence",
          "/api/risks", "/api/risk_catalog", "/api/findings", "/api/evidence/1/context",

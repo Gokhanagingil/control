@@ -6,7 +6,7 @@ RUN python -m pip install --disable-pip-version-check --no-cache-dir --only-bina
     && rm -rf /usr/local/lib/python3.12/ensurepip \
     && addgroup -S -g 10001 control && adduser -S -D -u 10001 -G control control \
     && mkdir -p /data && chown control:control /data && chmod 0700 /data
-COPY *.py ksgrc.js /app/
+COPY *.py ksgrc.js architecture.svg /app/
 COPY seed/ /app/seed/
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 CONTROL_DB=/data/control.db CONTROL_HOST=0.0.0.0 PORT=8080

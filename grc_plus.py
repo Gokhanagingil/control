@@ -786,12 +786,31 @@ def get(handler):
                 return handler.respond(200,compliance(db,query)) or True
             if path.path=="/api/architecture/data":
                 return handler.respond(200,{"models":[
-                    {"id":"sources","label":"Kaynak sistemler","items":["ServiceNow ITSM","Dynamics 365","CMDB / keşif / SIEM"]},
-                    {"id":"mcp","label":"Mevcut MCP orkestrasyon katmanı","items":["Yetkili sorgular","Zamanlama / otomasyon","Sonuç değerlendirme"]},
-                    {"id":"controls","label":"KS GRC kontrol çekirdeği","items":["Standart ve maddeler","Kontrol hedefleri","Süreçler / Kontroller"]},
-                    {"id":"evidence","label":"Kanıt ve izlenebilirlik","items":["Kanıt sürümleri","Çoklu eşleştirme","Denetim geçmişi"]},
-                    {"id":"outcomes","label":"Güvence ve iyileştirme","items":["Denetimler","Bulgular / DÖF","Riskler / göstergeler"]}
-                    ],"note":"ServiceNow ile KS GRC doğrudan konuşmaz; MCP katmanı okur ve yazar."}) or True
+                    {"id":"sources","label":"Kaynak sistemler","items":[
+                        "ServiceNow ITSM", "Dynamics 365"]},
+                    {"id":"mcp","label":"MCP entegrasyonu","items":[
+                        "Kaynak sistemlerde yetkili sorgu", "Sınırlı API anahtarıyla kanıt ve otomatik kontrol sonucu kaydı"]},
+                    {"id":"access","label":"Kimlik ve erişim","items":[
+                        "Kurumsal girişte Microsoft Entra ID, MFA için Koşullu Erişim ve uygulama rolleri",
+                        "Pilot ortamda yerel kullanıcı ve parola"]},
+                    {"id":"controls","label":"Kontrol tasarımı","items":[
+                        "Standart ve maddeleri", "Kontrol hedefleri", "Kontroller, süreçler ve talimatlar"]},
+                    {"id":"audits","label":"Denetim kapsamı","items":[
+                        "Birden fazla standart ve seçili maddeler", "Maddelere eşlenen aktif kontroller",
+                        "Kapanışta saklanan madde ve kontrol eşlemeleri", "Kapsam dışında çalıştırılan kontroller"]},
+                    {"id":"evidence","label":"Kontrol çalışması ve kanıt","items":[
+                        "Çalışma anındaki kontrol tanımı ve ilişkileri", "Kullanılan dosya sürümü ve SHA-256 özeti",
+                        "Kanıtın denetim, kontrol, madde ve süreç bağlantıları"]},
+                    {"id":"outcomes","label":"Bulgular ve faaliyetler","items":[
+                        "Başarısız çalışmadan açılan veya elle kaydedilen bulgu",
+                        "Denetimin kendi bulguları ve aynı kontrollerin diğer açık bulguları",
+                        "Bulguya veya riske bağlanabilen faaliyetler"]},
+                    {"id":"risks","label":"Risk yönetimi","items":[
+                        "Risk kataloğu ve varlığa veya hizmete özgü risk kaydı", "Neden, olay ve iş etkisi",
+                        "Kontrol katkıları, içsel risk, artık risk ve iştah eşiği",
+                        "Değerlendirme geçmişi, kabul, kapanış ve yeniden açma kararları"]}
+                    ],"note":"KS GRC, kaynak sistemlerden toplanan kanıt ve kontrol sonuçlarını MCP üzerinden alır. "
+                             "Kurumsal ve pilot kurulumlar aynı GRC veri modelini kullanır."}) or True
             if path.path=="/api/admin/summary":
                 if getattr(handler,"auth_type",None)!="session":
                     return handler.respond(403,{"error":"Kullanıcı oturumu gerekli"}) or True

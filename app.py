@@ -640,6 +640,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, identity.CHANGE_HTML, "text/html; charset=utf-8")
         if path_only == "/api/me":
             return self.respond(200, getattr(self, "current_user", {"username": "mcp"}))
+        if path_only == "/architecture.svg":
+            return self.respond(200, (Path(__file__).parent / "architecture.svg").read_text("utf-8"),
+                                "image/svg+xml; charset=utf-8",
+                                headers={"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"})
         if path_only == "/ksgrc.js":
             return self.respond(200, (Path(__file__).parent / "ksgrc.js").read_text("utf-8"),
                                 "application/javascript; charset=utf-8")
