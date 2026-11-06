@@ -4,6 +4,8 @@ Türkçe, küçük GRC ekibi için denetim–kontrol–kanıt uygulaması. Pytho
 
 Denetim ve risk modüllerini kullanmak için [iş akışları](docs/DENETIM_VE_RISK.md) sayfasına bakın. Şirket sunucusunda kurulum için [kurumsal dağıtım rehberini](enterprise/README.md) kullanın.
 
+[Mimari Harita](architecture.svg) denetim kapsamını, test ile kanıt sürümü arasındaki bağı, risk değerlendirme ve karar geçmişini, Entra ve MCP erişimini tek çizimde gösterir. Uygulamada **Sistem → Mimari Harita** yolunu açın. Bölüm düğmeleri haritada ilgili noktaya götürür. Kayıt kutuları ilgili listeyi açar. **SVG indir** aynı çizimin çevrimdışı kopyasını verir.
+
 ## Mevcut kapsam
 
 - Standart/otorite dokümanı, madde, süreç, kontrol hedefi ve kontrol kayıtları; çoktan çoğa eşlemeler.

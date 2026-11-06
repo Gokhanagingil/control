@@ -72,7 +72,7 @@ jobs:
           umask 077
           docker ps -q | xargs -r docker inspect --format '{{.Id}} {{.Name}} {{.State.StartedAt}} {{index .Config.Labels "com.docker.compose.project"}}' | grep -v ' control-grc$' | sort > /opt/control-grc/.other-containers-before || test "${PIPESTATUS[0]}" -eq 0
           REMOTE
-          scp ./*.py ksgrc.js requirements.txt Dockerfile compose.yaml .dockerignore "$SSH_USER@$SSH_HOST:/opt/control-grc/"
+          scp ./*.py ksgrc.js architecture.svg requirements.txt Dockerfile compose.yaml .dockerignore "$SSH_USER@$SSH_HOST:/opt/control-grc/"
           scp -r seed "$SSH_USER@$SSH_HOST:/opt/control-grc/"
       - name: Back up existing data and deploy only Control GRC
         env:
@@ -91,6 +91,8 @@ jobs:
             docker compose -p control-grc exec -T app python - < backup.py
           fi
           docker compose -p control-grc up -d --build --no-deps
+          docker compose -p control-grc exec -T app cat /app/architecture.svg | cmp - architecture.svg
+          echo CONTROL_GRC_ARCHITECTURE_ASSET_OK
           docker compose -p control-grc ps
           docker compose -p control-grc exec -T app python /app/seed_reference.py --apply </dev/null
           docker compose -p control-grc exec -T app python /app/seed_itil.py --apply </dev/null

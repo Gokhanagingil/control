@@ -15,6 +15,7 @@
 !/ui_v2.py
 !/xlsx_io.py
 !/ksgrc.js
+!/architecture.svg
 !/requirements.txt
 !/seed/
 !/seed/*.json
